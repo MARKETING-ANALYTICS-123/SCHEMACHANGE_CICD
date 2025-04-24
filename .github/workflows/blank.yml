@@ -1,6 +1,6 @@
 name: snowflake-devops-demo
 
-# Controls when the action will run. 
+# Controls when the action will run.
 on:
   push:
     branches:
@@ -38,6 +38,14 @@ jobs:
           python --version
           echo "Step 1: Installing schemachange"
           pip install schemachange
+          
+          # Debug: Check if secrets are set
+          if [ -z "$SNOWFLAKE_ACCOUNT" ] || [ -z "$SNOWFLAKE_USERNAME" ] || [ -z "$SNOWFLAKE_PASSWORD" ]; then
+            echo "One or more Snowflake secrets are not set or are empty."
+            exit 1
+          else
+            echo "Secrets are configured properly."
+          fi
           
           echo "Step 2: Running schemachange"
           schemachange -f $GITHUB_WORKSPACE/dbscripts -a $SNOWFLAKE_ACCOUNT -u $SNOWFLAKE_USERNAME -r $SNOWFLAKE_ROLE -w $SNOWFLAKE_WAREHOUSE -d $SNOWFLAKE_DATABASE -c $SNOWFLAKE_DATABASE.SCHEMACHANGE.CHANGE_HISTORY --create-change-history-table
