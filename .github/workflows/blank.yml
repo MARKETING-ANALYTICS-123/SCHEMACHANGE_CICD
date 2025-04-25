@@ -1,33 +1,4 @@
-name: snowflake-devops-demo
- 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'dbscripts2/**'
- 
-  workflow_dispatch:
- 
-jobs:
-  deploy-snowflake-changes-job:
-    runs-on: ubuntu-latest
- 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
- 
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v2.2.1
-        with:
-          python-version: 3.8.x
- 
-      - name: Replace environment references in SQL files
-        run: |
-          echo "Replacing 'EDW_Marketing.Dev.' with 'EDW_Marketing.PRD.' in SQL scripts"
-          find dbscripts2 -type f -name '*.sql' -print -exec sed -i 's/EDW_Marketing\.Dev\./EDW_Marketing.PRD./g' {} +
- 
-      - name: Install and run schemachange
+- name: Deploy custom SQL files to Snowflake
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
@@ -36,10 +7,5 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          echo "Installing schemachange"
-          pip install schemachange
- 
-          echo "Running schemachange using connections.toml"
-          schemachange deploy \
-            --config-folder $GITHUB_WORKSPACE/dbscripts2 \
-            --root-folder $GITHUB_WORKSPACE/dbscripts2
+          pip install snowflake-connector-python
+          python deploy_sql_files.py
