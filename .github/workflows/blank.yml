@@ -17,7 +17,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
  
-      - name: Use Python 3.8.x
+      - name: Set up Python 3.8
         uses: actions/setup-python@v2.2.1
         with:
           python-version: 3.8.x
@@ -27,7 +27,7 @@ jobs:
           echo "Replacing 'EDW_Marketing.Dev.' with 'EDW_Marketing.PRD.' in SQL scripts"
           find dbscripts2 -type f -name '*.sql' -print -exec sed -i 's/EDW_Marketing\.Dev\./EDW_Marketing.PRD./g' {} +
  
-      - name: Run schemachange
+      - name: Install and run schemachange
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
@@ -36,24 +36,10 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          python --version
+          echo "Installing schemachange"
           pip install schemachange
  
-          if [ -z "$SNOWFLAKE_ACCOUNT" ] || [ -z "$SNOWFLAKE_USER" ] || [ -z "$SNOWFLAKE_PASSWORD" ]; then
-            echo "One or more Snowflake secrets are not set or are empty."
-            exit 1
-          else
-            echo "Secrets are configured properly."
-          fi
- 
-          schemachange \
-            -f $GITHUB_WORKSPACE/dbscripts2 \
-            -a $SNOWFLAKE_ACCOUNT \
-            -u $SNOWFLAKE_USER \
-            -r $SNOWFLAKE_ROLE \
-            -w $SNOWFLAKE_WAREHOUSE \
-            -d $SNOWFLAKE_DATABASE \
-            -c $SNOWFLAKE_DATABASE.SCHEMACHANGE.CHANGE_HISTORY \
-            --create-change-history-table \
-            --enforce-change-history=false
+          echo "Running schemachange using connections.toml"
+          schemachange deploy \
+            --config-folder $GITHUB_WORKSPACE/dbscripts2 \
+            --root-folder $GITHUB_WORKSPACE/dbscripts2
