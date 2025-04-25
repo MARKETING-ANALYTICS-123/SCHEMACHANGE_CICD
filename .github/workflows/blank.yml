@@ -1,30 +1,32 @@
 name: snowflake-devops-demo
-
-# Controls when the action will run.
+ 
 on:
   push:
     branches:
       - main
     paths:
       - 'dbscripts2/**'
-
-  # Allows you to run this workflow manually from the Actions tab
+ 
   workflow_dispatch:
-
+ 
 jobs:
   deploy-snowflake-changes-job:
     runs-on: ubuntu-latest
-
+ 
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Checkout repository
         uses: actions/checkout@v2
-
+ 
       - name: Use Python 3.8.x
         uses: actions/setup-python@v2.2.1
         with:
           python-version: 3.8.x
-
+ 
+      - name: Replace environment references in SQL files
+        run: |
+          echo "Replacing 'EDW_Marketing.Dev.' with 'EDW_Marketing.PRD.' in SQL scripts"
+          find dbscripts2 -type f -name '*.sql' -print -exec sed -i 's/EDW_Marketing\.Dev\./EDW_Marketing.PRD./g' {} +
+ 
       - name: Run schemachange
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -36,16 +38,22 @@ jobs:
         run: |
           echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
           python --version
-          echo "Step 1: Installing schemachange"
           pip install schemachange
-          
-          # Debug: Check if secrets are set
+ 
           if [ -z "$SNOWFLAKE_ACCOUNT" ] || [ -z "$SNOWFLAKE_USER" ] || [ -z "$SNOWFLAKE_PASSWORD" ]; then
             echo "One or more Snowflake secrets are not set or are empty."
             exit 1
           else
             echo "Secrets are configured properly."
           fi
-          
-          echo "Step 2: Running schemachange"
-          schemachange -f $GITHUB_WORKSPACE/dbscripts2 -a $SNOWFLAKE_ACCOUNT -u $SNOWFLAKE_USER -r $SNOWFLAKE_ROLE -w $SNOWFLAKE_WAREHOUSE -d $SNOWFLAKE_DATABASE -c $SNOWFLAKE_DATABASE.SCHEMACHANGE.CHANGE_HISTORY --create-change-history-table
+ 
+          schemachange \
+            -f $GITHUB_WORKSPACE/dbscripts2 \
+            -a $SNOWFLAKE_ACCOUNT \
+            -u $SNOWFLAKE_USER \
+            -r $SNOWFLAKE_ROLE \
+            -w $SNOWFLAKE_WAREHOUSE \
+            -d $SNOWFLAKE_DATABASE \
+            -c $SNOWFLAKE_DATABASE.SCHEMACHANGE.CHANGE_HISTORY \
+            --create-change-history-table \
+            --enforce-change-history=false
