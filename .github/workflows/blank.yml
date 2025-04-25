@@ -1,4 +1,28 @@
-- name: Deploy custom SQL files to Snowflake
+name: snowflake-devops-demo
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'dbscripts2/**'
+
+  workflow_dispatch:
+
+jobs:
+  deploy-snowflake-changes-job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Deploy custom SQL files to Snowflake
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
