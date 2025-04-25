@@ -1,7 +1,7 @@
 import os
 import hashlib
-import json
-import snowflake.connector
+# import json
+# import snowflake.connector
 
 SQL_FOLDER = 'dbscripts2'
 HASH_TRACKER_FILE = '.deployed_hashes.json'
