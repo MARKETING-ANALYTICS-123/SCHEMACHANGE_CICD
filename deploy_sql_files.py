@@ -4,8 +4,8 @@ import json
 import snowflake.connector
 
 # Folder paths for tables and stored procedures
-TABLES_FOLDER = 'dbscripts/Tables'
-SP_FOLDER = 'dbscripts/StoredProcs'
+TABLES_FOLDER = 'dbscripts2/Tables'
+SP_FOLDER = 'dbscripts2/StoredProcs'
 HASH_TRACKER_FILE = '.deployed_hashes.json'
 
 # Load previous hash history
