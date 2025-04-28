@@ -33,3 +33,20 @@ jobs:
         run: |
           pip install snowflake-connector-python
           python deploy_sql_files.py
+
+      # Archive old versions of updated files (files that were changed)
+      - name: Archive old versions of updated files
+        run: python archive_old_versions.py
+
+      # Clean up the archive folder by deleting files older than 7 days
+      - name: Clean up archived files older than 7 days
+        run: python cleanup_archive.py
+
+      # Commit & push changes if there are any new archived or cleaned files
+      - name: Commit & Push changes
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add .
+          git commit -m "Auto archive old versions and clean up archive" || echo "No changes"
+          git push
