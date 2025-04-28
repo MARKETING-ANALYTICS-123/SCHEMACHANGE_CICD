@@ -22,7 +22,11 @@ jobs:
         with:
           python-version: 3.8
 
-      - name: Deploy custom SQL files to Snowflake
+      - name: Install dependencies
+        run: |
+          pip install snowflake-connector-python
+
+      - name: Deploy SQL files, Archive, and Clean up
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
@@ -31,16 +35,7 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          pip install snowflake-connector-python
-          python deploy_sql_files.py
-
-      # Archive old versions of updated files (files that were changed)
-      - name: Archive old versions of updated files
-        run: python archive_old_versions.py
-
-      # Clean up the archive folder by deleting files older than 7 days
-      - name: Clean up archived files older than 7 days
-        run: python cleanup_archive.py
+          python deploy_sql_files.py  # This will now handle deploying SQL, archiving, and cleaning up.
 
       # Commit & push changes if there are any new archived or cleaned files
       - name: Commit & Push changes
@@ -48,5 +43,5 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           git add .
-          git commit -m "Auto archive old versions and clean up archive" || echo "No changes"
+          git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
           git push
