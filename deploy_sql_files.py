@@ -41,20 +41,27 @@ def run_sql_script(cursor, script_path, schema):
     # Execute the SQL script
     cursor.execute(sql)
 
-# Function to archive old files
-def archive_old_files():
+# Function to archive changed files only (from Tables and StoredProcs folders)
+def archive_changed_files():
     if not os.path.exists(ARCHIVE_DIR):
         os.makedirs(ARCHIVE_DIR)
 
-    for filename in os.listdir("."):
-        if filename in ["archive", ".git", ".github"] or filename.startswith("."):
-            continue
-
-        if os.path.isfile(filename):
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            archive_name = f"{filename}_{timestamp}"
-            shutil.copy2(filename, os.path.join(ARCHIVE_DIR, archive_name))
-            print(f"Archived old version of: {filename} -> {archive_name}")
+    # Loop through both Tables and StoredProcs folders
+    for folder_path in [TABLES_FOLDER, SP_FOLDER]:
+        for filename in os.listdir(folder_path):
+            if filename.endswith('.sql'):
+                file_path = os.path.join(folder_path, filename)
+                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                # Check if file has changed by comparing its hash
+                current_hash = get_file_hash(file_path)
+                
+                if filename in file_hashes and file_hashes[filename] == current_hash:
+                    continue  # Skip if the file is unchanged
+                
+                # Archive the changed file
+                archive_name = f"{filename}_{timestamp}"
+                shutil.copy2(file_path, os.path.join(ARCHIVE_DIR, archive_name))
+                print(f"Archived changed file: {filename} -> {archive_name}")
 
 # Function to clean up archived files older than a certain number of days
 def clean_old_archives():
@@ -118,8 +125,8 @@ cursor.close()
 conn.close()
 print("🎉 Deployment complete.")
 
-# Archive old files
-archive_old_files()
+# Archive changed files (only from Tables and StoredProcs)
+archive_changed_files()
 
 # Clean up archived files older than 7 days
 clean_old_archives()
