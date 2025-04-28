@@ -35,13 +35,15 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          python deploy_sql_files.py  # This will now handle deploying SQL, archiving, and cleaning up.
+          python deploy_sql_files.py  # Deploy + archive + cleanup
 
-      # Commit & push changes if there are any new archived or cleaned files
       - name: Commit & Push changes
+        env:
+          TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
+          git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}
           git add .
           git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
           git push
