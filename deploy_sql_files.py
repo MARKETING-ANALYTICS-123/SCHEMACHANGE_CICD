@@ -10,7 +10,7 @@ import snowflake.connector
 TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
 HASH_TRACKER_FILE = '.deployed_hashes.json'
-ARCHIVE_DIR = "./archive"  # You can update this to an absolute path if needed
+ARCHIVE_DIR = "./archive"
 DAYS = 7
 
 # Load previous hash history
@@ -31,7 +31,7 @@ def run_sql_script(cursor, script_path, schema):
     # Read the SQL script
     with open(script_path, 'r') as f:
         sql = f.read()
-        
+
     # Print which schema and SQL is being executed
     print(f"Executing in {schema} schema: {sql}")
         
@@ -41,25 +41,32 @@ def run_sql_script(cursor, script_path, schema):
     # Execute the SQL script
     cursor.execute(sql)
 
-# Function to archive old files
+# Function to archive only changed files
 def archive_changed_files():
-    print(f"Checking if {ARCHIVE_DIR} exists...")
     if not os.path.exists(ARCHIVE_DIR):
-        print(f"Creating folder {ARCHIVE_DIR}...")
         os.makedirs(ARCHIVE_DIR)
-    else:
-        print(f"{ARCHIVE_DIR} already exists.")
-    
-    # Archive the changed files
+
     for filename in os.listdir("."):
+        # Skip directories and files we don't want to back up
         if filename in ["archive", ".git", ".github"] or filename.startswith("."):
             continue
 
         if os.path.isfile(filename):
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            current_hash = get_file_hash(filename)
+
+            # Only archive files that have changed (i.e., hash is different)
+            if filename in file_hashes and file_hashes[filename] == current_hash:
+                print(f"⏩ Skipping unchanged file: {filename}")
+                continue  # Skip unchanged files
+
+            # Archive changed files
             archive_name = f"{filename}_{timestamp}"
             shutil.copy2(filename, os.path.join(ARCHIVE_DIR, archive_name))
-            print(f"Archived old version of: {filename} -> {archive_name}")
+            print(f"Archived changed version of: {filename} -> {archive_name}")
+
+            # Update the file hash tracker
+            file_hashes[filename] = current_hash
 
 # Function to clean up archived files older than a certain number of days
 def clean_old_archives():
@@ -123,7 +130,7 @@ cursor.close()
 conn.close()
 print("🎉 Deployment complete.")
 
-# Archive changed files
+# Archive only changed files
 archive_changed_files()
 
 # Clean up archived files older than 7 days
