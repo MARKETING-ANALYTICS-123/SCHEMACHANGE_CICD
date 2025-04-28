@@ -41,26 +41,26 @@ def run_sql_script(cursor, script_path, schema):
     # Execute the SQL script
     cursor.execute(sql)
 
-# Function to archive old files
+# Function to archive old files (without creating .content files)
 def archive_old_file(file_path):
     if not os.path.exists(ARCHIVE_DIR):
         os.makedirs(ARCHIVE_DIR)
 
     # Only archive if the file has been modified
     if os.path.isfile(file_path):
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        archive_name = f"{os.path.basename(file_path)}_{timestamp}"
+        base_name = os.path.basename(file_path)
+        timestamp = datetime.now().strftime("%Y%m%d")
+        archive_name = f"{base_name.split('.')[0]}_{timestamp}.sql"  # Change to `a_date.sql` format
         
         # Copy the file to archive folder
-        shutil.copy2(file_path, os.path.join(ARCHIVE_DIR, archive_name))
-        print(f"Archived old version of: {file_path} -> {archive_name}")
-
-        # Save the file content in a separate .content file
-        with open(file_path, 'r') as f:
-            file_content = f.read()
-        with open(os.path.join(ARCHIVE_DIR, f"{archive_name}.content"), 'w') as content_file:
-            content_file.write(file_content)
-        print(f"Archived content of {file_path} to {archive_name}.content")
+        archive_file_path = os.path.join(ARCHIVE_DIR, archive_name)
+        
+        # Only archive if the file hasn't already been archived
+        if not os.path.exists(archive_file_path):
+            shutil.copy2(file_path, archive_file_path)
+            print(f"Archived old version of: {file_path} -> {archive_name}")
+        else:
+            print(f"File {archive_name} already archived.")
 
 # Function to clean up archived files older than a certain number of days
 def clean_old_archives():
@@ -101,7 +101,7 @@ for file_name in sorted(os.listdir(TABLES_FOLDER)):
             file_hashes[file_name] = current_hash
             print(f"✅ Done {file_name}")
 
-            # Archive old file content
+            # Archive old file content (without creating .content file)
             archive_old_file(full_path)
 
 # Process SQL files in the StoredProcs folder (to be deployed in XFRM schema)
@@ -118,7 +118,7 @@ for file_name in sorted(os.listdir(SP_FOLDER)):
             file_hashes[file_name] = current_hash
             print(f"✅ Done {file_name}")
 
-            # Archive old file content
+            # Archive old file content (without creating .content file)
             archive_old_file(full_path)
 
 # Save updated hash record
