@@ -31,7 +31,7 @@ def run_sql_script(cursor, script_path, schema):
     # Read the SQL script
     with open(script_path, 'r') as f:
         sql = f.read()
-
+        
     # Print which schema and SQL is being executed
     print(f"Executing in {schema} schema: {sql}")
         
@@ -41,32 +41,26 @@ def run_sql_script(cursor, script_path, schema):
     # Execute the SQL script
     cursor.execute(sql)
 
-# Function to archive only changed files
-def archive_changed_files():
+# Function to archive old files
+def archive_old_file(file_path):
     if not os.path.exists(ARCHIVE_DIR):
         os.makedirs(ARCHIVE_DIR)
 
-    for filename in os.listdir("."):
-        # Skip directories and files we don't want to back up
-        if filename in ["archive", ".git", ".github"] or filename.startswith("."):
-            continue
+    # Only archive if the file has been modified
+    if os.path.isfile(file_path):
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        archive_name = f"{os.path.basename(file_path)}_{timestamp}"
+        
+        # Copy the file to archive folder
+        shutil.copy2(file_path, os.path.join(ARCHIVE_DIR, archive_name))
+        print(f"Archived old version of: {file_path} -> {archive_name}")
 
-        if os.path.isfile(filename):
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            current_hash = get_file_hash(filename)
-
-            # Only archive files that have changed (i.e., hash is different)
-            if filename in file_hashes and file_hashes[filename] == current_hash:
-                print(f"⏩ Skipping unchanged file: {filename}")
-                continue  # Skip unchanged files
-
-            # Archive changed files
-            archive_name = f"{filename}_{timestamp}"
-            shutil.copy2(filename, os.path.join(ARCHIVE_DIR, archive_name))
-            print(f"Archived changed version of: {filename} -> {archive_name}")
-
-            # Update the file hash tracker
-            file_hashes[filename] = current_hash
+        # Save the file content in a separate .content file
+        with open(file_path, 'r') as f:
+            file_content = f.read()
+        with open(os.path.join(ARCHIVE_DIR, f"{archive_name}.content"), 'w') as content_file:
+            content_file.write(file_content)
+        print(f"Archived content of {file_path} to {archive_name}.content")
 
 # Function to clean up archived files older than a certain number of days
 def clean_old_archives():
@@ -107,6 +101,9 @@ for file_name in sorted(os.listdir(TABLES_FOLDER)):
             file_hashes[file_name] = current_hash
             print(f"✅ Done {file_name}")
 
+            # Archive old file content
+            archive_old_file(full_path)
+
 # Process SQL files in the StoredProcs folder (to be deployed in XFRM schema)
 for file_name in sorted(os.listdir(SP_FOLDER)):
     if file_name.endswith('.sql'):
@@ -121,6 +118,9 @@ for file_name in sorted(os.listdir(SP_FOLDER)):
             file_hashes[file_name] = current_hash
             print(f"✅ Done {file_name}")
 
+            # Archive old file content
+            archive_old_file(full_path)
+
 # Save updated hash record
 with open(HASH_TRACKER_FILE, 'w') as f:
     json.dump(file_hashes, f, indent=2)
@@ -129,9 +129,6 @@ with open(HASH_TRACKER_FILE, 'w') as f:
 cursor.close()
 conn.close()
 print("🎉 Deployment complete.")
-
-# Archive only changed files
-archive_changed_files()
 
 # Clean up archived files older than 7 days
 clean_old_archives()
