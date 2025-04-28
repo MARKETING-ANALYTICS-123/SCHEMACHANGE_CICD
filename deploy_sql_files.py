@@ -14,11 +14,12 @@ ARCHIVE_DIR = "./archive"
 DAYS = 7
 
 # Load previous hash history
-if os.path.exists(HASH_TRACKER_FILE):
-    with open(HASH_TRACKER_FILE, 'r') as f:
-        file_hashes = json.load(f)
-else:
-    file_hashes = {}
+def load_file_hashes():
+    if os.path.exists(HASH_TRACKER_FILE):
+        with open(HASH_TRACKER_FILE, 'r') as f:
+            return json.load(f)
+    else:
+        return {}
 
 # Function to calculate file hash
 def get_file_hash(file_path):
@@ -28,90 +29,98 @@ def get_file_hash(file_path):
 
 # Function to run SQL script in Snowflake
 def run_sql_script(cursor, script_path, schema):
-    # Read the SQL script
     with open(script_path, 'r') as f:
         sql = f.read()
-        
-    # Print which schema and SQL is being executed
     print(f"Executing in {schema} schema: {sql}")
-        
-    # Use the correct schema (either XFRM or RPT)
     cursor.execute(f"USE SCHEMA {schema};")  # Switch to the specific schema
-        
-    # Execute the SQL script
     cursor.execute(sql)
 
 # Snowflake connection setup
-conn = snowflake.connector.connect(
-    user=os.environ['SNOWFLAKE_USER'],
-    password=os.environ['SNOWFLAKE_PASSWORD'],
-    account=os.environ['SNOWFLAKE_ACCOUNT'],
-    role=os.environ['SNOWFLAKE_ROLE'],
-    warehouse=os.environ['SNOWFLAKE_WAREHOUSE'],
-    database=os.environ['SNOWFLAKE_DATABASE'],
-    schema='PUBLIC'  # Default schema; it will switch as needed
-)
+def setup_snowflake_connection():
+    return snowflake.connector.connect(
+        user=os.environ['SNOWFLAKE_USER'],
+        password=os.environ['SNOWFLAKE_PASSWORD'],
+        account=os.environ['SNOWFLAKE_ACCOUNT'],
+        role=os.environ['SNOWFLAKE_ROLE'],
+        warehouse=os.environ['SNOWFLAKE_WAREHOUSE'],
+        database=os.environ['SNOWFLAKE_DATABASE'],
+        schema='PUBLIC'  # Default schema; it will switch as needed
+    )
 
-cursor = conn.cursor()
+# Function to process files in a given folder (Tables or StoredProcs)
+def process_files_in_folder(folder, schema, cursor, file_hashes):
+    for file_name in sorted(os.listdir(folder)):
+        if file_name.endswith('.sql'):
+            full_path = os.path.join(folder, file_name)
+            current_hash = get_file_hash(full_path)
 
-# Process SQL files in the Tables folder (to be deployed in RPT schema)
-for file_name in sorted(os.listdir(TABLES_FOLDER)):
-    if file_name.endswith('.sql'):
-        full_path = os.path.join(TABLES_FOLDER, file_name)
-        current_hash = get_file_hash(full_path)
-        
-        if file_name in file_hashes and file_hashes[file_name] == current_hash:
-            print(f"⏩ Skipping {file_name} (unchanged)")
-        else:
-            print(f"🚀 Running {file_name} in RPT schema")
-            run_sql_script(cursor, full_path, 'RPT')  # Use RPT schema for tables
-            file_hashes[file_name] = current_hash
-            print(f"✅ Done {file_name}")
+            if file_name in file_hashes and file_hashes[file_name] == current_hash:
+                print(f"⏩ Skipping {file_name} (unchanged)")
+            else:
+                print(f"🚀 Running {file_name} in {schema} schema")
+                run_sql_script(cursor, full_path, schema)
+                file_hashes[file_name] = current_hash
+                print(f"✅ Done {file_name}")
 
-# Process SQL files in the StoredProcs folder (to be deployed in XFRM schema)
-for file_name in sorted(os.listdir(SP_FOLDER)):
-    if file_name.endswith('.sql'):
-        full_path = os.path.join(SP_FOLDER, file_name)
-        current_hash = get_file_hash(full_path)
-        
-        if file_name in file_hashes and file_hashes[file_name] == current_hash:
-            print(f"⏩ Skipping {file_name} (unchanged)")
-        else:
-            print(f"🚀 Running {file_name} in XFRM schema")
-            run_sql_script(cursor, full_path, 'XFRM')  # Use XFRM schema for stored procedures
-            file_hashes[file_name] = current_hash
-            print(f"✅ Done {file_name}")
+# Function to archive old versions of files (excluding specific folders)
+def archive_old_files():
+    if not os.path.exists(ARCHIVE_DIR):
+        os.makedirs(ARCHIVE_DIR)
 
-# Save updated hash record
-with open(HASH_TRACKER_FILE, 'w') as f:
-    json.dump(file_hashes, f, indent=2)
+    for filename in os.listdir("."):
+        if filename in ["archive", ".git", ".github"] or filename.startswith("."):
+            continue
 
-# Close Snowflake connection
-cursor.close()
-conn.close()
-print("🎉 Deployment complete.")
+        if os.path.isfile(filename):
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            archive_name = f"{filename}_{timestamp}"
+            shutil.copy2(filename, os.path.join(ARCHIVE_DIR, archive_name))
+            print(f"Archived old version of: {filename} -> {archive_name}")
 
-# Archive old versions of files (excluding the archive folder itself and hidden files)
-if not os.path.exists(ARCHIVE_DIR):
-    os.makedirs(ARCHIVE_DIR)
+# Function to clean up archived files older than 7 days
+def clean_old_archives():
+    now = time.time()
 
-for filename in os.listdir("."):
-    if filename in ["archive", ".git", ".github"] or filename.startswith("."):
-        continue
+    for file in os.listdir(ARCHIVE_DIR):
+        file_path = os.path.join(ARCHIVE_DIR, file)
+        if os.path.isfile(file_path):
+            age = now - os.path.getmtime(file_path)
+            if age > DAYS * 86400:
+                os.remove(file_path)
+                print(f"Deleted: {file}")
 
-    if os.path.isfile(filename):
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        archive_name = f"{filename}_{timestamp}"
-        shutil.copy2(filename, os.path.join(ARCHIVE_DIR, archive_name))
-        print(f"Archived old version of: {filename} -> {archive_name}")
+# Main function
+def main():
+    # Load previous hash history
+    file_hashes = load_file_hashes()
 
-# Clean up archived files older than 7 days
-now = time.time()
+    # Setup Snowflake connection
+    conn = setup_snowflake_connection()
+    cursor = conn.cursor()
 
-for file in os.listdir(ARCHIVE_DIR):
-    file_path = os.path.join(ARCHIVE_DIR, file)
-    if os.path.isfile(file_path):
-        age = now - os.path.getmtime(file_path)
-        if age > DAYS * 86400:
-            os.remove(file_path)
-            print(f"Deleted: {file}")
+    try:
+        # Process files in Tables folder for RPT schema
+        process_files_in_folder(TABLES_FOLDER, 'RPT', cursor, file_hashes)
+
+        # Process files in StoredProcs folder for XFRM schema
+        process_files_in_folder(SP_FOLDER, 'XFRM', cursor, file_hashes)
+
+        # Save updated hash record
+        with open(HASH_TRACKER_FILE, 'w') as f:
+            json.dump(file_hashes, f, indent=2)
+
+        print("🎉 Deployment complete.")
+
+    finally:
+        # Close Snowflake connection
+        cursor.close()
+        conn.close()
+
+        # Archive old versions of files
+        archive_old_files()
+
+        # Clean up archived files older than 7 days
+        clean_old_archives()
+
+if __name__ == "__main__":
+    main()
