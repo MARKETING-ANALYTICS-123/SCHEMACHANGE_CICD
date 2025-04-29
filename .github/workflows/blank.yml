@@ -6,6 +6,9 @@ on:
       - PROD
     paths:
       - 'dbscripts2/**'
+  pull_request:
+    branches:
+      - prod
 
   workflow_dispatch:
 
