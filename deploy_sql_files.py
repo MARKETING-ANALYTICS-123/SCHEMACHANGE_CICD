@@ -13,18 +13,17 @@ HASH_TRACKER_FILE = '.deployed_hashes.json'
 ARCHIVE_DIR = "./archive"
 DAYS = 7
 
-# Load previous file hashes
+# Load previous file hashes and content
 if os.path.exists(HASH_TRACKER_FILE):
     with open(HASH_TRACKER_FILE, 'r') as f:
         file_hashes = json.load(f)
 else:
     file_hashes = {}
 
-# Function to calculate hash
+# Function to calculate file hash
 def get_file_hash(file_path):
     with open(file_path, 'rb') as f:
-        file_data = f.read()
-        return hashlib.sha256(file_data).hexdigest()
+        return hashlib.sha256(f.read()).hexdigest()
 
 # Function to run SQL in Snowflake
 def run_sql_script(cursor, script_path, schema):
@@ -34,7 +33,7 @@ def run_sql_script(cursor, script_path, schema):
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
-# Archive old version (before updating)
+# Archive old version
 def archive_old_file(file_path, file_content):
     if not os.path.exists(ARCHIVE_DIR):
         os.makedirs(ARCHIVE_DIR)
@@ -76,47 +75,73 @@ conn = snowflake.connector.connect(
 
 cursor = conn.cursor()
 
-# Deploy Tables to RPT schema
+# Deploy Tables (RPT schema)
 for file_name in sorted(os.listdir(TABLES_FOLDER)):
     if file_name.endswith('.sql'):
         full_path = os.path.join(TABLES_FOLDER, file_name)
-        current_hash = get_file_hash(full_path)
-        previous_hash = file_hashes.get(file_name)
+
+        # Read content and hash
+        with open(full_path, 'r') as f:
+            current_content = f.read()
+        current_hash = hashlib.sha256(current_content.encode('utf-8')).hexdigest()
+
+        previous_entry = file_hashes.get(file_name)
+        if isinstance(previous_entry, dict):
+            previous_hash = previous_entry.get('hash')
+            previous_content = previous_entry.get('content', '')
+        else:
+            previous_hash = previous_entry
+            previous_content = ''
 
         if previous_hash == current_hash:
             print(f"⏩ Skipping {file_name} (unchanged)")
         else:
-            if previous_hash:
-                with open(full_path, 'r') as f:
-                    old_content = f.read()
-                archive_old_file(full_path, old_content)
+            if previous_content:
+                archive_old_file(full_path, previous_content)
 
             print(f"🚀 Running {file_name} in RPT schema")
             run_sql_script(cursor, full_path, 'RPT')
-            file_hashes[file_name] = current_hash
+
+            file_hashes[file_name] = {
+                'hash': current_hash,
+                'content': current_content
+            }
             print(f"✅ Done {file_name}")
 
-# Deploy Stored Procedures to XFRM schema
+# Deploy Stored Procedures (XFRM schema)
 for file_name in sorted(os.listdir(SP_FOLDER)):
     if file_name.endswith('.sql'):
         full_path = os.path.join(SP_FOLDER, file_name)
-        current_hash = get_file_hash(full_path)
-        previous_hash = file_hashes.get(file_name)
+
+        # Read content and hash
+        with open(full_path, 'r') as f:
+            current_content = f.read()
+        current_hash = hashlib.sha256(current_content.encode('utf-8')).hexdigest()
+
+        previous_entry = file_hashes.get(file_name)
+        if isinstance(previous_entry, dict):
+            previous_hash = previous_entry.get('hash')
+            previous_content = previous_entry.get('content', '')
+        else:
+            previous_hash = previous_entry
+            previous_content = ''
 
         if previous_hash == current_hash:
             print(f"⏩ Skipping {file_name} (unchanged)")
         else:
-            if previous_hash:
-                with open(full_path, 'r') as f:
-                    old_content = f.read()
-                archive_old_file(full_path, old_content)
+            if previous_content:
+                archive_old_file(full_path, previous_content)
 
             print(f"🚀 Running {file_name} in XFRM schema")
             run_sql_script(cursor, full_path, 'XFRM')
-            file_hashes[file_name] = current_hash
+
+            file_hashes[file_name] = {
+                'hash': current_hash,
+                'content': current_content
+            }
             print(f"✅ Done {file_name}")
 
-# Save updated hash data
+# Save updated hashes with content
 with open(HASH_TRACKER_FILE, 'w') as f:
     json.dump(file_hashes, f, indent=2)
 
@@ -125,5 +150,5 @@ cursor.close()
 conn.close()
 print("🎉 Deployment complete.")
 
-# Clean up old archives
+# Clean old archives
 clean_old_archives()
