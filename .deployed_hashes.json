@@ -1,7 +1,0 @@
-{
-  "A.sql": "1a20e12109cfbea8f4d7e097541a57872848b7b1a9bef775a5c81d4e3d349d7d",
-  "B.sql": {
-    "hash": "ead927312bbd70c471ae178a4c9cb54b9774c73af57c8759b25ac68011d30004",
-    "content": "\nCREATE OR REPLACE TABLE ARJIT AS SELECT 4 AS A\n\n"
-  }
-}
