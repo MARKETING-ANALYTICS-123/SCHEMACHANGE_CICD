@@ -1,78 +1,114 @@
-name: snowflake-devops-demo
+import os
+import hashlib
+import json
+import shutil
+import time
+from datetime import datetime
+import snowflake.connector
 
-on:
-  push:
-    branches:
-      - DEV   # Trigger on changes to DEV branch
-    paths:
-      - 'dbscripts2/**'
-  pull_request:
-    branches:
-      - PROD   # Trigger PR action for PROD branch
-  workflow_dispatch:   # Manually triggered
+# Folder paths
+TABLES_FOLDER = 'dbscripts2/Tables'
+SP_FOLDER = 'dbscripts2/StoredProcs'
+HASH_TRACKER_FILE = '.deployed_hashes.json'
+ARCHIVE_DIR = "./archive"
+DAYS = 7
 
-jobs:
-  deploy-snowflake-changes-job:
-    runs-on: ubuntu-latest
+# Load previous hash history
+if os.path.exists(HASH_TRACKER_FILE):
+    with open(HASH_TRACKER_FILE, 'r') as f:
+        file_hashes = json.load(f)
+else:
+    file_hashes = {}
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+# File hash generator
+def get_file_hash(file_path):
+    with open(file_path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.8
+# Archive function
+def archive_old_version(original_path):
+    if not os.path.exists(ARCHIVE_DIR):
+        os.makedirs(ARCHIVE_DIR)
 
-      - name: Install dependencies
-        run: |
-          pip install snowflake-connector-python
+    if os.path.isfile(original_path):
+        base_name = os.path.basename(original_path)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_name = f"{base_name.rsplit('.',1)[0]}_{timestamp}.sql"
+        archive_path = os.path.join(ARCHIVE_DIR, archive_name)
+        shutil.copy2(original_path, archive_path)
+        print(f"📦 Archived: {original_path} -> {archive_path}")
 
-      - name: Deploy SQL files, Archive, and Clean up
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-        run: |
-          python deploy_sql_files.py
+# Cleanup old archives
+def clean_old_archives():
+    if not os.path.exists(ARCHIVE_DIR):
+        return
+    now = time.time()
+    for file in os.listdir(ARCHIVE_DIR):
+        path = os.path.join(ARCHIVE_DIR, file)
+        if os.path.isfile(path) and (now - os.path.getmtime(path)) > DAYS * 86400:
+            os.remove(path)
+            print(f"🧹 Removed old archive: {file}")
 
-      - name: Commit & Push changes
-        env:
-          TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-          git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}
-          git add .
-          git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
-          git push
+# Run SQL via Snowflake
+def run_sql(cursor, path, schema):
+    with open(path, 'r') as f:
+        sql = f.read()
+    print(f"🔁 Executing {os.path.basename(path)} in schema {schema}")
+    cursor.execute(f"USE SCHEMA {schema}")
+    cursor.execute(sql)
 
-  create-pr-from-dev-to-prod:
-    runs-on: ubuntu-latest
-    needs: deploy-snowflake-changes-job
+# Snowflake connect
+conn = snowflake.connector.connect(
+    user=os.environ['SNOWFLAKE_USER'],
+    password=os.environ['SNOWFLAKE_PASSWORD'],
+    account=os.environ['SNOWFLAKE_ACCOUNT'],
+    role=os.environ['SNOWFLAKE_ROLE'],
+    warehouse=os.environ['SNOWFLAKE_WAREHOUSE'],
+    database=os.environ['SNOWFLAKE_DATABASE'],
+    schema='PUBLIC'
+)
+cursor = conn.cursor()
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+# Handle Tables
+for file_name in sorted(os.listdir(TABLES_FOLDER)):
+    if file_name.endswith('.sql'):
+        full_path = os.path.join(TABLES_FOLDER, file_name)
+        file_key = f"Tables/{file_name}"
+        new_hash = get_file_hash(full_path)
 
-      - name: Set up Git configuration
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
+        if file_hashes.get(file_key) != new_hash:
+            if file_key in file_hashes:
+                archive_old_version(full_path)
+            run_sql(cursor, full_path, 'RPT')
+            file_hashes[file_key] = new_hash
+            print(f"✅ Updated: {file_name}")
+        else:
+            print(f"⏭️ No changes in: {file_name}")
 
-      - name: Install GitHub CLI
-        run: |
-          sudo apt update
-          sudo apt install gh -y
+# Handle Stored Procs
+for file_name in sorted(os.listdir(SP_FOLDER)):
+    if file_name.endswith('.sql'):
+        full_path = os.path.join(SP_FOLDER, file_name)
+        file_key = f"StoredProcs/{file_name}"
+        new_hash = get_file_hash(full_path)
 
-      - name: Create Pull Request from DEV to PROD
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git fetch origin
-          git checkout DEV
-          gh auth setup-git
-          gh pr create --base PROD --head DEV --title "Auto PR from DEV to PROD" --body "This PR is automatically created from DEV to PROD." || echo "PR already exists or failed to create."
+        if file_hashes.get(file_key) != new_hash:
+            if file_key in file_hashes:
+                archive_old_version(full_path)
+            run_sql(cursor, full_path, 'XFRM')
+            file_hashes[file_key] = new_hash
+            print(f"✅ Updated: {file_name}")
+        else:
+            print(f"⏭️ No changes in: {file_name}")
+
+# Save updated hashes
+with open(HASH_TRACKER_FILE, 'w') as f:
+    json.dump(file_hashes, f, indent=2)
+
+# Close DB connection
+cursor.close()
+conn.close()
+print("🎉 Deployment finished.")
+
+# Clean up
+clean_old_archives()
