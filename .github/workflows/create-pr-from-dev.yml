@@ -1,27 +1,68 @@
-name: Create PR from DEV to PROD
-
+name: snowflake-devops-demo
 on:
   push:
     branches:
-      - DEV
+      - PROD   # Trigger on changes to PROD branch
     paths:
-      - 'dbscripts2/**'
+      - 'dbscripts2/**'   # Monitor changes in dbscripts2 folder
+  pull_request:
+    branches:
+      - PROD   # Trigger PR action for PROD branch
+  workflow_dispatch:   # Manually triggered
 
 jobs:
-  create-pr-from-dev:
+  deploy-snowflake-changes-job:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Set up GitHub Token
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config --global user.email "actions@github.com"
-          git config --global user.name "github-actions"
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
 
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -d '{"title":"Automated PR from DEV to PROD","head":"DEV","base":"PROD"}' \
-            "https://api.github.com/repos/${{ github.repository }}/pulls"
+      - name: Install dependencies
+        run: |
+          pip install snowflake-connector-python
+
+      - name: Create Archive Directory
+        run: |
+          # Ensure the archive directory exists
+          mkdir -p ./archive
+          echo "Archive directory is created or already exists."
+
+      - name: Archive Changed Files
+        run: |
+          # List modified files in dbscripts2 and archive them
+          echo "Checking for modified files in dbscripts2..."
+          git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^dbscripts2/' | while read file; do
+            if [ -f "$file" ]; then
+              timestamp=$(date +"%Y%m%d_%H%M%S")
+              archive_file="./archive/$(basename $file)_$timestamp"
+              echo "Archiving file: $file to $archive_file"
+              cp "$file" "$archive_file"
+            fi
+          done
+
+      - name: Deploy SQL files, Archive, and Clean up
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+        run: |
+          python deploy_sql_files.py  # Deploy + archive + cleanup
+
+      - name: Commit & Push changes
+        env:
+          TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}
+          git add .
+          git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
+          git push
