@@ -3,7 +3,7 @@ name: snowflake-devops-demo
 on:
   push:
     branches:
-      - DEV
+      - PROD
     paths:
       - 'dbscripts2/**'
   pull_request:
