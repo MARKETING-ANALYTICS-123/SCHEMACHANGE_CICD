@@ -9,7 +9,6 @@ on:
   pull_request:
     branches:
       - PROD
-
   workflow_dispatch:
 
 jobs:
@@ -19,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
+        with:
+          ref: 'PROD'  # Ensure we are checking out the correct branch
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -40,7 +41,7 @@ jobs:
         run: |
           python deploy_sql_files.py  # Deploy + archive + cleanup
 
-      - name: Commit & Push changes
+      - name: Commit & Push changes to PROD
         env:
           TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -49,4 +50,4 @@ jobs:
           git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}
           git add .
           git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
-          git push
+          git push origin PROD  # Ensure changes go to the prod branch
