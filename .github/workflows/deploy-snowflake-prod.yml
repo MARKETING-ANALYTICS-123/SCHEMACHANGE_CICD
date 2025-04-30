@@ -3,33 +3,12 @@ name: Deploy Snowflake Changes
 on:
   push:
     branches:
-      - DEV
       - PROD
     paths:
       - 'dbscripts2/**'
 
 jobs:
-  create-pr:
-    if: github.ref == 'refs/heads/DEV'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
-      - name: Set up GitHub Token
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config --global user.email "actions@github.com"
-          git config --global user.name "github-actions"
-
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -d '{"title":"Automated PR from DEV to PROD","head":"DEV","base":"PROD"}' \
-            "https://api.github.com/repos/${{ github.repository }}/pulls"
-
-  deploy-snowflake:
-    if: github.ref == 'refs/heads/PROD'
+  deploy-snowflake-prod:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -58,4 +37,3 @@ jobs:
           git add .
           git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
           git push
-
