@@ -2,7 +2,7 @@ name: snowflake-devops-demo
 on:
   push:
     branches:
-      - DEV   # Trigger on changes to DEV branch
+      - PROD   # Trigger on changes to PROD branch
     paths:
       - 'dbscripts2/**'   # Monitor changes in dbscripts2 folder
   pull_request:
