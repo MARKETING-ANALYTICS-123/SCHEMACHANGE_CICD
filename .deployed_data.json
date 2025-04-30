@@ -1,10 +1,10 @@
 {
   "A.sql": {
-    "hash": "3bfe1cbb950c5335f50239af10e609f86d65ffdaa918eb563fce586b32ef2eaf",
-    "content": "CREATE OR REPLACE TABLE AR AS SELECT 40 AS A\n"
+    "hash": "1a20e12109cfbea8f4d7e097541a57872848b7b1a9bef775a5c81d4e3d349d7d",
+    "content": "CREATE OR REPLACE TABLE AR AS SELECT 5 AS A\n"
   },
   "B.sql": {
-    "hash": "58ca3bfdf30825ea4e377c4de2a79524bf972b10a1c1491d2b83eff28ca1fddb",
-    "content": "CREATE OR REPLACE TABLE ARJIT AS SELECT 99 AS A\n"
+    "hash": "aa66ca28cbcc07e11113ad6efeeaec103357f4bea57102add569d52b7916a3f1",
+    "content": "\nCREATE OR REPLACE TABLE ARJIT AS SELECT 5 AS A\n\n"
   }
 }
