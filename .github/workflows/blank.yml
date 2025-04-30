@@ -3,13 +3,11 @@ name: snowflake-devops-demo
 on:
   push:
     branches:
-      - DEV   # Trigger on changes to DEV branch
-    paths:
-      - 'dbscripts2/**'
+      - PROD
   pull_request:
     branches:
-      - PROD   # Trigger PR action for PROD branch
-  workflow_dispatch:   # Manually triggered
+      - PROD
+  workflow_dispatch:   # Manual trigger bhi available hoga
 
 jobs:
   deploy-snowflake-changes-job:
@@ -27,6 +25,16 @@ jobs:
       - name: Install dependencies
         run: |
           pip install snowflake-connector-python
+
+      - name: Check if PR exists
+        run: |
+          PR_URL=$(gh pr list --base PROD --head DEV --state open --json url -q ".[].url")
+          if [ -n "$PR_URL" ]; then
+            echo "PR exists. Proceeding with deployment"
+          else
+            echo "No open PR found, skipping deployment."
+            exit 0  # Skip deployment if no PR
+          fi
 
       - name: Deploy SQL files, Archive, and Clean up
         env:
@@ -50,25 +58,22 @@ jobs:
           git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
           git push
 
-  create-pr-from-dev-to-prod:
-    runs-on: ubuntu-latest
+  close-pr-after-deploy:
     needs: deploy-snowflake-changes-job
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Set up Git configuration
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-
-      - name: Create Pull Request from DEV to PROD
+      - name: Close the PR after successful deployment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Check out the repository and make sure we are on the right branch
-          git checkout DEV
-
-          # Create a PR from DEV to PROD branch
-          gh pr create --base PROD --head DEV --title "Auto PR from DEV to PROD" --body "This PR is automatically created from DEV to PROD."
+          PR_URL=$(gh pr list --base PROD --head DEV --state open --json url -q ".[].url")
+          if [ -n "$PR_URL" ]; then
+            echo "PR exists. Closing PR: $PR_URL"
+            gh pr close "$PR_URL"
+          else
+            echo "No open PR found"
+          fi
