@@ -1,10 +1,13 @@
-# Ignore everything by default
+# Ignore everything
 *
 
-# Allow only these
+# Allow these:
 !.gitignore
 !dbscripts2/
 !dbscripts2/**
-
-# Optional: if your deployment script is needed in PROD
 !deploy_sql_files.py
+
+# ✅ Allow workflows folder
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
