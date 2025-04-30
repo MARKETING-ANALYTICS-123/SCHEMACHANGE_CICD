@@ -11,14 +11,24 @@ TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
 HASH_TRACKER_FILE = '.deployed_hashes.json'
 ARCHIVE_DIR = "./archive"
+DEVELOPMENT_DATA_FILE = '.deployed.data.json'  # New file for tracking deployment status
 DAYS = 7
 
-# Load previous file hashes
+# Load previous file hashes and deployment data
 if os.path.exists(HASH_TRACKER_FILE):
     with open(HASH_TRACKER_FILE, 'r') as f:
         file_hashes = json.load(f)
 else:
     file_hashes = {}
+
+if os.path.exists(DEVELOPMENT_DATA_FILE):
+    with open(DEVELOPMENT_DATA_FILE, 'r') as f:
+        deployed_data = json.load(f)
+else:
+    deployed_data = {
+        "tables": {},
+        "stored_procs": {}
+    }
 
 # Function to calculate hash
 def get_file_hash(file_path):
@@ -94,6 +104,7 @@ for file_name in sorted(os.listdir(TABLES_FOLDER)):
             print(f"🚀 Running {file_name} in RPT schema")
             run_sql_script(cursor, full_path, 'RPT')
             file_hashes[file_name] = current_hash
+            deployed_data["tables"][file_name] = {"status": "done", "timestamp": datetime.now().isoformat()}
             print(f"✅ Done {file_name}")
 
 # Deploy Stored Procedures to XFRM schema
@@ -114,11 +125,16 @@ for file_name in sorted(os.listdir(SP_FOLDER)):
             print(f"🚀 Running {file_name} in XFRM schema")
             run_sql_script(cursor, full_path, 'XFRM')
             file_hashes[file_name] = current_hash
+            deployed_data["stored_procs"][file_name] = {"status": "done", "timestamp": datetime.now().isoformat()}
             print(f"✅ Done {file_name}")
 
 # Save updated hash data
 with open(HASH_TRACKER_FILE, 'w') as f:
     json.dump(file_hashes, f, indent=2)
+
+# Save updated deployment data
+with open(DEVELOPMENT_DATA_FILE, 'w') as f:
+    json.dump(deployed_data, f, indent=2)
 
 # Close connection
 cursor.close()
@@ -127,3 +143,9 @@ print("🎉 Deployment complete.")
 
 # Clean up old archives
 clean_old_archives()
+
+# Git commit and push changes
+print("📦 Committing changes to Git...")
+os.system("git add .")
+os.system('git commit -m "Update deployed files and archive old versions" || echo "No changes"')
+os.system("git push")
