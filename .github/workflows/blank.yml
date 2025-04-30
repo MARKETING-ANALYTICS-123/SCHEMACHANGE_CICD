@@ -1,16 +1,16 @@
 name: snowflake-devops-demo
 
 on:
-  pull_request:
+  push:
     branches:
-      - PROD  # Only trigger the workflow when PR is made to PROD
+      - PROD  # When PR is merged into PROD, it triggers this workflow
     paths:
-      - 'dbscripts2/**'
-
+      - 'dbscripts2/**'  # Monitor changes to the dbscripts folder
   pull_request:
     branches:
-      - PROD
-  workflow_dispatch:
+      - PROD  # When PR is created targeting PROD branch, trigger the workflow
+
+  workflow_dispatch:  # Manually trigger the workflow
 
 jobs:
   deploy-snowflake-changes-job:
@@ -19,8 +19,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        with:
-          ref: 'PROD'  # Ensure we are checking out the correct branch
 
       - name: Set up Python
         uses: actions/setup-python@v2
