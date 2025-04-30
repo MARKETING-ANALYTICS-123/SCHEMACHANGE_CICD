@@ -3,14 +3,14 @@ name: snowflake-devops-demo
 on:
   push:
     branches:
-      - PROD  # When PR is merged into PROD, it triggers this workflow
+      - DEV  # Jab DEV pe push hoga, tab PR generate hoga for PROD
     paths:
-      - 'dbscripts2/**'  # Monitor changes to the dbscripts folder
+      - 'dbscripts2/**'  # Ye path check karega ki dbscripts2 folder me koi file change hui ho
   pull_request:
     branches:
-      - PROD  # When PR is created targeting PROD branch, trigger the workflow
+      - PROD  # Jab PR prod ke liye banega, tab workflow run hoga
 
-  workflow_dispatch:  # Manually trigger the workflow
+  workflow_dispatch:  # Manual trigger ka option bhi hai agar aap chahein
 
 jobs:
   deploy-snowflake-changes-job:
@@ -38,9 +38,9 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          python deploy_sql_files.py  # Deploy + archive + cleanup
+          python deploy_sql_files.py  # Ye deploy, archive aur cleanup script ko run karega
 
-      - name: Commit & Push changes to PROD
+      - name: Commit & Push changes
         env:
           TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -49,4 +49,4 @@ jobs:
           git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}
           git add .
           git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
-          git push origin PROD  # Ensure changes go to the prod branch
+          git push
