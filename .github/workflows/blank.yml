@@ -1,14 +1,17 @@
 name: snowflake-devops-demo
 
 on:
+  # Trigger on changes to the DEV branch (create PR from DEV to PROD)
   push:
     branches:
-      - DEV  # Jab DEV pe push hoga, tab PR generate hoga for PROD
+      - DEV  # Jab DEV me push hoga, tab PR for PROD generate hoga
     paths:
-      - 'dbscripts2/**'  # Ye path check karega ki dbscripts2 folder me koi file change hui ho
+      - 'dbscripts2/**'  # Ye check karega ki dbscripts2 folder me koi file change hui ho
+
+  # Trigger on pull request creation or update for PROD branch
   pull_request:
     branches:
-      - PROD  # Jab PR prod ke liye banega, tab workflow run hoga
+      - PROD  # Jab PR PROD ke liye banega, tab workflow run hoga
 
   workflow_dispatch:  # Manual trigger ka option bhi hai agar aap chahein
 
