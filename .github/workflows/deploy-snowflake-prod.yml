@@ -26,20 +26,22 @@ jobs:
         run: |
           pip install snowflake-connector-python
 
-      - name: Ensure Archive Directory Exists
+      - name: Create Archive Directory
         run: |
-          # Create the archive directory outside dbscripts2 folder
+          # Ensure the archive directory exists
           mkdir -p ./archive
+          echo "Archive directory is created or already exists."
 
-      - name: Archive changed files
+      - name: Archive Changed Files
         run: |
-          # Loop over all changed files and move them to the archive folder
-          for file in $(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep 'dbscripts2/'); do
+          # List modified files in dbscripts2 and archive them
+          echo "Checking for modified files in dbscripts2..."
+          git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^dbscripts2/' | while read file; do
             if [ -f "$file" ]; then
               timestamp=$(date +"%Y%m%d_%H%M%S")
               archive_file="./archive/$(basename $file)_$timestamp"
               echo "Archiving file: $file to $archive_file"
-              cp $file $archive_file
+              cp "$file" "$archive_file"
             fi
           done
 
