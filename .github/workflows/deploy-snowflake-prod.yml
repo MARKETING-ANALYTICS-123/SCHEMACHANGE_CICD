@@ -4,7 +4,7 @@ on:
     branches:
       - PROD   # Trigger on changes to PROD branch
     paths:
-      - 'dbscripts2/**'
+      - 'dbscripts2/**'   # Monitor changes in dbscripts2 folder
   pull_request:
     branches:
       - PROD   # Trigger PR action for PROD branch
@@ -16,13 +16,33 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
+
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: 3.8
+
       - name: Install dependencies
         run: |
           pip install snowflake-connector-python
+
+      - name: Ensure Archive Directory Exists
+        run: |
+          # Create the archive directory outside dbscripts2 folder
+          mkdir -p ./archive
+
+      - name: Archive changed files
+        run: |
+          # Loop over all changed files and move them to the archive folder
+          for file in $(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep 'dbscripts2/'); do
+            if [ -f "$file" ]; then
+              timestamp=$(date +"%Y%m%d_%H%M%S")
+              archive_file="./archive/$(basename $file)_$timestamp"
+              echo "Archiving file: $file to $archive_file"
+              cp $file $archive_file
+            fi
+          done
+
       - name: Deploy SQL files, Archive, and Clean up
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -33,6 +53,7 @@ jobs:
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
           python deploy_sql_files.py  # Deploy + archive + cleanup
+
       - name: Commit & Push changes
         env:
           TOKEN: ${{ secrets.PAT_TOKEN }}
