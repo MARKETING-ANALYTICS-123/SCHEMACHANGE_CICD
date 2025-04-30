@@ -1,26 +1,16 @@
-name: snowflake-devops-demo
+name: Deploy Snowflake Changes
 
 on:
   pull_request:
     branches:
-      - PROD  # Only trigger the workflow when PR is made to PROD
-    paths:
-      - 'dbscripts2/**'
-
-  pull_request:
-    branches:
       - PROD
-  workflow_dispatch:
 
 jobs:
   deploy-snowflake-changes-job:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        with:
-          ref: 'PROD'  # Ensure we are checking out the correct branch
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -40,9 +30,9 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          python deploy_sql_files.py  # Deploy + archive + cleanup
+          python deploy_sql_files.py
 
-      - name: Commit & Push changes to PROD
+      - name: Commit & Push changes
         env:
           TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -51,4 +41,4 @@ jobs:
           git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}
           git add .
           git commit -m "Auto deploy, archive old versions, and clean up archive" || echo "No changes"
-          git push origin PROD  # Ensure changes go to the prod branch
+          git push
