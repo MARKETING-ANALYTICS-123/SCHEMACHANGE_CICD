@@ -9,16 +9,16 @@ import snowflake.connector
 # Folder paths
 TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
-HASH_TRACKER_FILE = '.deployed_data.json'
+HASH_TRACKER_FILE = '.deployed_hashes.json'
 ARCHIVE_DIR = "./archive"
 DAYS = 7
 
-# Load previous deployed file data (hash + content)
+# Load previous file hashes
 if os.path.exists(HASH_TRACKER_FILE):
     with open(HASH_TRACKER_FILE, 'r') as f:
-        deployed_data = json.load(f)
+        file_hashes = json.load(f)
 else:
-    deployed_data = {}
+    file_hashes = {}
 
 # Function to calculate hash
 def get_file_hash(file_path):
@@ -34,8 +34,8 @@ def run_sql_script(cursor, script_path, schema):
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
-# Archive old version (from previous deployment data)
-def archive_old_version(file_path, old_content):
+# Archive old version (before updating)
+def archive_old_file(file_path, file_content):
     if not os.path.exists(ARCHIVE_DIR):
         os.makedirs(ARCHIVE_DIR)
 
@@ -45,7 +45,7 @@ def archive_old_version(file_path, old_content):
     archive_file_path = os.path.join(ARCHIVE_DIR, archive_name)
 
     with open(archive_file_path, 'w') as f:
-        f.write(old_content)
+        f.write(file_content)
     
     print(f"🗄️ Archived old version of: {file_path} -> {archive_name}")
 
@@ -80,61 +80,45 @@ cursor = conn.cursor()
 for file_name in sorted(os.listdir(TABLES_FOLDER)):
     if file_name.endswith('.sql'):
         full_path = os.path.join(TABLES_FOLDER, file_name)
+        current_hash = get_file_hash(full_path)
+        previous_hash = file_hashes.get(file_name)
 
-        with open(full_path, 'r') as f:
-            current_content = f.read()
-
-        current_hash = hashlib.sha256(current_content.encode()).hexdigest()
-        previous_data = deployed_data.get(file_name)
-
-        if previous_data and previous_data['hash'] == current_hash:
+        if previous_hash == current_hash:
             print(f"⏩ Skipping {file_name} (unchanged)")
         else:
-            if previous_data:
-                archive_old_version(full_path, previous_data['content'])
+            if previous_hash:
+                with open(full_path, 'r') as f:
+                    old_content = f.read()
+                archive_old_file(full_path, old_content)
 
             print(f"🚀 Running {file_name} in RPT schema")
             run_sql_script(cursor, full_path, 'RPT')
-
-            # Save new hash + content
-            deployed_data[file_name] = {
-                'hash': current_hash,
-                'content': current_content
-            }
-
+            file_hashes[file_name] = current_hash
             print(f"✅ Done {file_name}")
 
 # Deploy Stored Procedures to XFRM schema
 for file_name in sorted(os.listdir(SP_FOLDER)):
     if file_name.endswith('.sql'):
         full_path = os.path.join(SP_FOLDER, file_name)
+        current_hash = get_file_hash(full_path)
+        previous_hash = file_hashes.get(file_name)
 
-        with open(full_path, 'r') as f:
-            current_content = f.read()
-
-        current_hash = hashlib.sha256(current_content.encode()).hexdigest()
-        previous_data = deployed_data.get(file_name)
-
-        if previous_data and previous_data['hash'] == current_hash:
+        if previous_hash == current_hash:
             print(f"⏩ Skipping {file_name} (unchanged)")
         else:
-            if previous_data:
-                archive_old_version(full_path, previous_data['content'])
+            if previous_hash:
+                with open(full_path, 'r') as f:
+                    old_content = f.read()
+                archive_old_file(full_path, old_content)
 
             print(f"🚀 Running {file_name} in XFRM schema")
             run_sql_script(cursor, full_path, 'XFRM')
-
-            # Save new hash + content
-            deployed_data[file_name] = {
-                'hash': current_hash,
-                'content': current_content
-            }
-
+            file_hashes[file_name] = current_hash
             print(f"✅ Done {file_name}")
 
-# Save updated deployment data
+# Save updated hash data
 with open(HASH_TRACKER_FILE, 'w') as f:
-    json.dump(deployed_data, f, indent=2)
+    json.dump(file_hashes, f, indent=2)
 
 # Close connection
 cursor.close()
