@@ -1,37 +1,67 @@
 name: snowflake-devops-demo
 
 on:
-  # Trigger on changes to the DEV branch (create PR from DEV to PROD)
+  # Trigger on changes to the DEV branch (PR creation from DEV to PROD)
   push:
     branches:
-      - DEV  # Jab DEV me push hoga, tab PR for PROD generate hoga
+      - DEV  # DEV me push hote hi trigger hoga
     paths:
       - 'dbscripts2/**'  # Ye check karega ki dbscripts2 folder me koi file change hui ho
 
   # Trigger on pull request creation or update for PROD branch
   pull_request:
     branches:
-      - PROD  # Jab PR PROD ke liye banega, tab workflow run hoga
+      - PROD  # PROD branch me PR jab create ya update hoga, tab workflow chalega
 
-  workflow_dispatch:  # Manual trigger ka option bhi hai agar aap chahein
+  workflow_dispatch:  # Manual trigger bhi possible hai
 
 jobs:
-  deploy-snowflake-changes-job:
+  create-pr:
     runs-on: ubuntu-latest
-
     steps:
+      # Step 1: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v2
 
+      # Step 2: Set up GitHub Token
+      - name: Set up GitHub Token
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Setting up GitHub token"
+          git config --global user.email "actions@github.com"
+          git config --global user.name "github-actions"
+
+      # Step 3: Create PR from DEV to PROD automatically
+      - name: Create Pull Request from DEV to PROD
+        run: |
+          # PR creation using GitHub API
+          curl -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -d '{"title":"Automated PR from DEV to PROD","head":"DEV","base":"PROD"}' \
+            "https://api.github.com/repos/${{ github.repository }}/pulls"
+
+  deploy-snowflake-changes-job:
+    runs-on: ubuntu-latest
+    needs: create-pr  # Ye step tab chalega jab create-pr job successfully complete hoga
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      # Step 2: Set up Python environment
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: 3.8
 
+      # Step 3: Install dependencies
       - name: Install dependencies
         run: |
           pip install snowflake-connector-python
 
+      # Step 4: Deploy SQL files, Archive, and Clean up
       - name: Deploy SQL files, Archive, and Clean up
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -41,8 +71,9 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          python deploy_sql_files.py  # Ye deploy, archive aur cleanup script ko run karega
+          python deploy_sql_files.py  # Ye deploy + archive + cleanup karega
 
+      # Step 5: Commit & Push any changes
       - name: Commit & Push changes
         env:
           TOKEN: ${{ secrets.PAT_TOKEN }}
