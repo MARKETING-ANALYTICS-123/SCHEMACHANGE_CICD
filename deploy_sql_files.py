@@ -34,22 +34,20 @@ def run_sql_script(cursor, script_path, schema):
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
-# Archive old version before updating
-def archive_old_file(file_path):
+# Archive old version (before updating)
+def archive_old_file(file_path, file_content):
     if not os.path.exists(ARCHIVE_DIR):
         os.makedirs(ARCHIVE_DIR)
 
-    if os.path.isfile(file_path):
-        base_name = os.path.basename(file_path)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        archive_name = f"{base_name.split('.')[0]}_{timestamp}.sql"
-        archive_file_path = os.path.join(ARCHIVE_DIR, archive_name)
+    base_name = os.path.basename(file_path)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_name = f"{base_name.split('.')[0]}_{timestamp}.sql"
+    archive_file_path = os.path.join(ARCHIVE_DIR, archive_name)
 
-        if not os.path.exists(archive_file_path):
-            shutil.copy2(file_path, archive_file_path)
-            print(f"🗄️ Archived old version of: {file_path} -> {archive_name}")
-        else:
-            print(f"File {archive_name} already archived.")
+    with open(archive_file_path, 'w') as f:
+        f.write(file_content)
+    
+    print(f"🗄️ Archived old version of: {file_path} -> {archive_name}")
 
 # Clean up old archive files
 def clean_old_archives():
@@ -89,7 +87,9 @@ for file_name in sorted(os.listdir(TABLES_FOLDER)):
             print(f"⏩ Skipping {file_name} (unchanged)")
         else:
             if previous_hash:
-                archive_old_file(full_path)
+                with open(full_path, 'r') as f:
+                    old_content = f.read()
+                archive_old_file(full_path, old_content)
 
             print(f"🚀 Running {file_name} in RPT schema")
             run_sql_script(cursor, full_path, 'RPT')
@@ -107,7 +107,9 @@ for file_name in sorted(os.listdir(SP_FOLDER)):
             print(f"⏩ Skipping {file_name} (unchanged)")
         else:
             if previous_hash:
-                archive_old_file(full_path)
+                with open(full_path, 'r') as f:
+                    old_content = f.read()
+                archive_old_file(full_path, old_content)
 
             print(f"🚀 Running {file_name} in XFRM schema")
             run_sql_script(cursor, full_path, 'XFRM')
