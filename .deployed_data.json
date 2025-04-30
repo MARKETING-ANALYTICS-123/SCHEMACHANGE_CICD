@@ -1,7 +1,7 @@
 {
   "A.sql": {
-    "hash": "1a20e12109cfbea8f4d7e097541a57872848b7b1a9bef775a5c81d4e3d349d7d",
-    "content": "CREATE OR REPLACE TABLE AR AS SELECT 5 AS A\n"
+    "hash": "4871cbbf2674e79fd5cad9f1dd5142828c555bf4f68303810d3a72e9817bf057",
+    "content": "CREATE OR REPLACE TABLE AR AS SELECT 1 AS A\n"
   },
   "B.sql": {
     "hash": "aa66ca28cbcc07e11113ad6efeeaec103357f4bea57102add569d52b7916a3f1",
