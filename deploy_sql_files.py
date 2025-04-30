@@ -13,51 +13,57 @@ HASH_TRACKER_FILE = '.deployed_hashes.json'
 ARCHIVE_DIR = "./archive"
 DAYS = 7
 
-# Load previous hash history
+# Load previous file hashes
 if os.path.exists(HASH_TRACKER_FILE):
     with open(HASH_TRACKER_FILE, 'r') as f:
         file_hashes = json.load(f)
 else:
     file_hashes = {}
 
-# File hash generator
+# Function to calculate hash
 def get_file_hash(file_path):
     with open(file_path, 'rb') as f:
-        return hashlib.sha256(f.read()).hexdigest()
+        file_data = f.read()
+        return hashlib.sha256(file_data).hexdigest()
 
-# Archive function
-def archive_old_version(original_path):
+# Function to run SQL in Snowflake
+def run_sql_script(cursor, script_path, schema):
+    with open(script_path, 'r') as f:
+        sql = f.read()
+    print(f"Executing in {schema} schema: {sql}")
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute(sql)
+
+# Archive old version (before updating)
+def archive_old_file(file_path, file_content):
     if not os.path.exists(ARCHIVE_DIR):
         os.makedirs(ARCHIVE_DIR)
 
-    if os.path.isfile(original_path):
-        base_name = os.path.basename(original_path)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        archive_name = f"{base_name.rsplit('.',1)[0]}_{timestamp}.sql"
-        archive_path = os.path.join(ARCHIVE_DIR, archive_name)
-        shutil.copy2(original_path, archive_path)
-        print(f"📦 Archived: {original_path} -> {archive_path}")
+    base_name = os.path.basename(file_path)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_name = f"{base_name.split('.')[0]}_{timestamp}.sql"
+    archive_file_path = os.path.join(ARCHIVE_DIR, archive_name)
 
-# Cleanup old archives
+    with open(archive_file_path, 'w') as f:
+        f.write(file_content)
+    
+    print(f"🗄️ Archived old version of: {file_path} -> {archive_name}")
+
+# Clean up old archive files
 def clean_old_archives():
+    now = time.time()
     if not os.path.exists(ARCHIVE_DIR):
         return
-    now = time.time()
+
     for file in os.listdir(ARCHIVE_DIR):
-        path = os.path.join(ARCHIVE_DIR, file)
-        if os.path.isfile(path) and (now - os.path.getmtime(path)) > DAYS * 86400:
-            os.remove(path)
-            print(f"🧹 Removed old archive: {file}")
+        file_path = os.path.join(ARCHIVE_DIR, file)
+        if os.path.isfile(file_path):
+            age = now - os.path.getmtime(file_path)
+            if age > DAYS * 86400:
+                os.remove(file_path)
+                print(f"🧹 Deleted old archive: {file}")
 
-# Run SQL via Snowflake
-def run_sql(cursor, path, schema):
-    with open(path, 'r') as f:
-        sql = f.read()
-    print(f"🔁 Executing {os.path.basename(path)} in schema {schema}")
-    cursor.execute(f"USE SCHEMA {schema}")
-    cursor.execute(sql)
-
-# Snowflake connect
+# Connect to Snowflake
 conn = snowflake.connector.connect(
     user=os.environ['SNOWFLAKE_USER'],
     password=os.environ['SNOWFLAKE_PASSWORD'],
@@ -67,48 +73,57 @@ conn = snowflake.connector.connect(
     database=os.environ['SNOWFLAKE_DATABASE'],
     schema='PUBLIC'
 )
+
 cursor = conn.cursor()
 
-# Handle Tables
+# Deploy Tables to RPT schema
 for file_name in sorted(os.listdir(TABLES_FOLDER)):
     if file_name.endswith('.sql'):
         full_path = os.path.join(TABLES_FOLDER, file_name)
-        file_key = f"Tables/{file_name}"
-        new_hash = get_file_hash(full_path)
+        current_hash = get_file_hash(full_path)
+        previous_hash = file_hashes.get(file_name)
 
-        if file_hashes.get(file_key) != new_hash:
-            if file_key in file_hashes:
-                archive_old_version(full_path)
-            run_sql(cursor, full_path, 'RPT')
-            file_hashes[file_key] = new_hash
-            print(f"✅ Updated: {file_name}")
+        if previous_hash == current_hash:
+            print(f"⏩ Skipping {file_name} (unchanged)")
         else:
-            print(f"⏭️ No changes in: {file_name}")
+            if previous_hash:
+                with open(full_path, 'r') as f:
+                    old_content = f.read()
+                archive_old_file(full_path, old_content)
 
-# Handle Stored Procs
+            print(f"🚀 Running {file_name} in RPT schema")
+            run_sql_script(cursor, full_path, 'RPT')
+            file_hashes[file_name] = current_hash
+            print(f"✅ Done {file_name}")
+
+# Deploy Stored Procedures to XFRM schema
 for file_name in sorted(os.listdir(SP_FOLDER)):
     if file_name.endswith('.sql'):
         full_path = os.path.join(SP_FOLDER, file_name)
-        file_key = f"StoredProcs/{file_name}"
-        new_hash = get_file_hash(full_path)
+        current_hash = get_file_hash(full_path)
+        previous_hash = file_hashes.get(file_name)
 
-        if file_hashes.get(file_key) != new_hash:
-            if file_key in file_hashes:
-                archive_old_version(full_path)
-            run_sql(cursor, full_path, 'XFRM')
-            file_hashes[file_key] = new_hash
-            print(f"✅ Updated: {file_name}")
+        if previous_hash == current_hash:
+            print(f"⏩ Skipping {file_name} (unchanged)")
         else:
-            print(f"⏭️ No changes in: {file_name}")
+            if previous_hash:
+                with open(full_path, 'r') as f:
+                    old_content = f.read()
+                archive_old_file(full_path, old_content)
 
-# Save updated hashes
+            print(f"🚀 Running {file_name} in XFRM schema")
+            run_sql_script(cursor, full_path, 'XFRM')
+            file_hashes[file_name] = current_hash
+            print(f"✅ Done {file_name}")
+
+# Save updated hash data
 with open(HASH_TRACKER_FILE, 'w') as f:
     json.dump(file_hashes, f, indent=2)
 
-# Close DB connection
+# Close connection
 cursor.close()
 conn.close()
-print("🎉 Deployment finished.")
+print("🎉 Deployment complete.")
 
-# Clean up
+# Clean up old archives
 clean_old_archives()
