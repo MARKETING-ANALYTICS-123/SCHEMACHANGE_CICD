@@ -7,7 +7,7 @@ on:
       - 'dbscripts2/**'
   pull_request:
     branches:
-      - prod
+      - PROD
   workflow_dispatch:
 jobs:
   deploy-snowflake-changes-job:
