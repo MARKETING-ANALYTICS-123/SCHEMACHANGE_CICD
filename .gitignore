@@ -23,4 +23,3 @@ TestResults.xml
 # Ignore specific files to prevent accidental tracking (only works if untracked)
 deploy_sql_files.py
 .github/workflows/deploy-snowflake-prod.yml
-
