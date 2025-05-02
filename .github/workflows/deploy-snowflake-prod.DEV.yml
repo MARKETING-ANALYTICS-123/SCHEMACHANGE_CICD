@@ -1,0 +1,27 @@
+name: Create PR from DEV to PROD
+ 
+on:
+  push:
+    branches:
+      - DEV
+    paths:
+      - 'dbscripts2/**'
+ 
+jobs:
+  create-pr-from-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+ 
+      - name: Set up GitHub Token
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "github-actions"
+ 
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -d '{"title":"Automated PR from DEV to PROD","head":"DEV","base":"PROD"}' \
+            "https://api.github.com/repos/${{ github.repository }}/pulls"
