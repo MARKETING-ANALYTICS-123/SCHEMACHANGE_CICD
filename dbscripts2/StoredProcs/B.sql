@@ -1,2 +1,7 @@
-CREATE OR REPLACE TABLE ARJIT AS SELECT 33 AS A
+Create or replace Arjit_Test 
+(
+  A NUMBER(28,0),
+  B VARCHAR(300)
+
+  )
 
