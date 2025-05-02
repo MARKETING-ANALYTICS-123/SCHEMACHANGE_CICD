@@ -4,7 +4,7 @@
     "content": "CREATE OR REPLACE TABLE AR AS SELECT 1 AS A\n"
   },
   "B.sql": {
-    "hash": "b4b43ffe6bd86de2e1df71bf13d4a763353a01be81bce1fdc90d26b7b912b774",
-    "content": "\n\nCREATE OR REPLACE TABLE ARJIT AS SELECT 33 AS A\n\n\n\n"
+    "hash": "fb0b61afcffe239ac0bd032047a69ba93ad6eef5178887be31369e3a2d2f86d9",
+    "content": "CREATE OR REPLACE TABLE ARJIT AS SELECT 52 AS A\n\n"
   }
 }
