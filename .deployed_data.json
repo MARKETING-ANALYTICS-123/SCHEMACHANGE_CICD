@@ -4,7 +4,7 @@
     "content": "CREATE OR REPLACE TABLE AR AS SELECT 1 AS A\n"
   },
   "B.sql": {
-    "hash": "4f81e8c56127ddbbd82ae50c92e6b97493c2797dae6d993851845bc85aae4f82",
-    "content": "\nCreate or replace table Arjit_Test \n(\n  A NUMBER(28,0)\n\n)\n\n"
+    "hash": "bc95d410a48340d569ba876430e307a0d363e94f7924ecdd19c49ead4fc16bc7",
+    "content": "\nCreate or replace table Arjit_Test \n(\n  B NUMBER(2,0)\n\n)\n\n"
   }
 }
