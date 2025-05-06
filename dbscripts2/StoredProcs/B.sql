@@ -1,7 +1,7 @@
 
 Create or replace table Arjit_Test 
 (
-  B NUMBER(28,0)
+  B NUMBER(23,0)
 
 )
 
