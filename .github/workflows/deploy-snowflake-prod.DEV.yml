@@ -1,4 +1,4 @@
-name: Deploy to DEV Snowflake
+name: Deploy to DEV and Create PR to PROD
 
 on:
   push:
@@ -7,14 +7,23 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-dev:
+  deploy-and-create-pr:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
+      - name: Checkout full repo (including all branches)
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Important to fetch all refs
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
         with:
           python-version: 3.8
-      - run: pip install snowflake-connector-python
+
+      - name: Install dependencies
+        run: pip install snowflake-connector-python
+
       - name: Deploy to DEV Snowflake
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -24,3 +33,15 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
         run: python deploy_sql_files.py
+
+      - name: Create Pull Request from DEV to PROD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh auth status
+          gh pr create \
+            --title "🚀 Promote DEV to PROD" \
+            --body "This PR promotes changes from DEV to PROD" \
+            --base PROD \
+            --head DEV \
+            || echo "PR already exists or nothing to PR"
