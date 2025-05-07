@@ -1,4 +1,4 @@
-import os, subprocess, time
+import os, time, subprocess
 from datetime import datetime
 import snowflake.connector
 
@@ -6,24 +6,11 @@ TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
 ARCHIVE_DIR = "./archive"
 DAYS = 7
-CHANGED_FILES_LIST = 'changed_files.txt'
 
-# Generate changed_files.txt if not present
-if not os.path.exists(CHANGED_FILES_LIST):
-    print("🔍 Generating changed_files.txt using git diff origin/PROD...HEAD")
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "origin/PROD...HEAD"],
-        stdout=subprocess.PIPE,
-        text=True
-    )
-    changed_files_raw = result.stdout.strip().split('\n')
-    changed_files = [f for f in changed_files_raw if f.endswith('.sql')]
-
-    with open(CHANGED_FILES_LIST, 'w') as f:
-        f.write('\n'.join(changed_files))
-else:
-    with open(CHANGED_FILES_LIST, 'r') as f:
-        changed_files = [line.strip() for line in f if line.strip().endswith('.sql')]
+# 🔍 Get changed SQL files using git diff
+print("🔍 Getting changed SQL files using: git diff origin/PROD..HEAD")
+result = subprocess.run(['git', 'diff', '--name-only', 'origin/PROD..HEAD'], capture_output=True, text=True)
+changed_files = [f.strip() for f in result.stdout.split('\n') if f.strip().endswith('.sql')]
 
 if not changed_files:
     print("✅ No changed SQL files to deploy.")
@@ -40,8 +27,7 @@ def archive_old_version(file_path, old_content):
 
 def clean_old_archives():
     now = time.time()
-    if not os.path.exists(ARCHIVE_DIR):
-        return
+    if not os.path.exists(ARCHIVE_DIR): return
     for file in os.listdir(ARCHIVE_DIR):
         path = os.path.join(ARCHIVE_DIR, file)
         if os.path.isfile(path) and (now - os.path.getmtime(path)) > DAYS * 86400:
@@ -66,7 +52,7 @@ for file in changed_files:
         print(f"⚠️ Skipping missing file: {file}")
         continue
 
-    schema = 'RPT' if file.startswith(TABLES_FOLDER) else 'XFRM'
+    schema = 'RPT' if TABLES_FOLDER in file else 'XFRM'
     with open(file, 'r') as f:
         content = f.read()
 
