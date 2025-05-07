@@ -1,11 +1,11 @@
 name: Deploy to PROD Snowflake
- 
+
 on:
   push:
     branches: [PROD]
     paths: ['dbscripts2/**']
   workflow_dispatch:
- 
+
 jobs:
   deploy-prod:
     runs-on: ubuntu-latest
