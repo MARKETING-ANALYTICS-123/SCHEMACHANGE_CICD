@@ -16,6 +16,7 @@
 rad.json
 #Translation Base-file
 *.g.xlf
+changed_files.txt
 #License-file
 *.flf
 #Test results file
