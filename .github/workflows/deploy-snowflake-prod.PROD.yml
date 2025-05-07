@@ -9,12 +9,30 @@ on:
 jobs:
   deploy-prod:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
+      - name: Checkout full repo (including all branches)
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
         with:
           python-version: 3.8
-      - run: pip install snowflake-connector-python
+
+      - name: Install dependencies
+        run: pip install snowflake-connector-python
+
+      - name: Get list of changed files
+        id: changes
+        run: |
+          git fetch origin main || true  # Or replace with actual base branch if different
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep '.sql$' || true)
+          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
+          echo "$CHANGED_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Deploy to PROD Snowflake
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -23,4 +41,5 @@ jobs:
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: python deploy_sql_files.py
