@@ -14,7 +14,7 @@ jobs:
       - name: Checkout full repo (including all branches)
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Important to fetch all refs
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -24,6 +24,15 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python
 
+      - name: Get list of changed files
+        id: changes
+        run: |
+          git fetch origin PROD
+          CHANGED_FILES=$(git diff --name-only origin/PROD...HEAD | grep '.sql$' || true)
+          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
+          echo "$CHANGED_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Deploy to DEV Snowflake
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.DEV_SNOWFLAKE_ACCOUNT }}
@@ -32,6 +41,7 @@ jobs:
           SNOWFLAKE_ROLE: ${{ secrets.DEV_SNOWFLAKE_ROLE }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.DEV_SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.DEV_SNOWFLAKE_DATABASE }}
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: python deploy_sql_files.py
 
       - name: Create Pull Request from DEV to PROD
