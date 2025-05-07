@@ -1,5 +1,4 @@
-# deploy_sql_files_gitdiff.py
-import os, json, shutil, time
+import os, subprocess, time
 from datetime import datetime
 import snowflake.connector
 
@@ -9,18 +8,26 @@ ARCHIVE_DIR = "./archive"
 DAYS = 7
 CHANGED_FILES_LIST = 'changed_files.txt'
 
-# Read changed files from git diff output
-if os.path.exists(CHANGED_FILES_LIST):
+# Generate changed_files.txt if not present
+if not os.path.exists(CHANGED_FILES_LIST):
+    print("🔍 Generating changed_files.txt using git diff origin/PROD...HEAD")
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "origin/PROD...HEAD"],
+        stdout=subprocess.PIPE,
+        text=True
+    )
+    changed_files_raw = result.stdout.strip().split('\n')
+    changed_files = [f for f in changed_files_raw if f.endswith('.sql')]
+
+    with open(CHANGED_FILES_LIST, 'w') as f:
+        f.write('\n'.join(changed_files))
+else:
     with open(CHANGED_FILES_LIST, 'r') as f:
         changed_files = [line.strip() for line in f if line.strip().endswith('.sql')]
-else:
-    print(f"❌ {CHANGED_FILES_LIST} not found.")
-    changed_files = []
 
 if not changed_files:
     print("✅ No changed SQL files to deploy.")
     exit(0)
-
 
 def archive_old_version(file_path, old_content):
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
@@ -33,7 +40,8 @@ def archive_old_version(file_path, old_content):
 
 def clean_old_archives():
     now = time.time()
-    if not os.path.exists(ARCHIVE_DIR): return
+    if not os.path.exists(ARCHIVE_DIR):
+        return
     for file in os.listdir(ARCHIVE_DIR):
         path = os.path.join(ARCHIVE_DIR, file)
         if os.path.isfile(path) and (now - os.path.getmtime(path)) > DAYS * 86400:
@@ -63,7 +71,7 @@ for file in changed_files:
         content = f.read()
 
     try:
-        print(f"Executing in {schema} schema: {file}")
+        print(f"🚀 Executing in {schema} schema: {file}")
         cursor.execute(f"USE SCHEMA {schema};")
         cursor.execute(content)
         print(f"✅ Executed: {file}")
