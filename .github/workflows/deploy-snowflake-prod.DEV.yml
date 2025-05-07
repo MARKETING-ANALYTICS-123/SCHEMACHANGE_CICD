@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-and-create-pr:
+  deploy-and-pr:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout full repo (including all branches)
+      - name: Checkout repo
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Important for git diff to work
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -24,14 +24,7 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python
 
-      - name: Generate changed_files.txt from DEV vs PROD
-        run: |
-          git fetch origin PROD
-          git diff --name-only origin/PROD...HEAD | grep '^dbscripts2/.*\.sql$' > changed_files.txt || true
-          echo "📝 Changed files:"
-          cat changed_files.txt || echo "No changed files found."
-
-      - name: Deploy to DEV Snowflake
+      - name: Deploy changed files to DEV Snowflake
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.DEV_SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.DEV_SNOWFLAKE_USER }}
@@ -51,4 +44,4 @@ jobs:
             --body "This PR promotes changes from DEV to PROD" \
             --base PROD \
             --head DEV \
-            || echo "PR already exists or nothing to PR"
+            || echo "⚠️ PR already exists or nothing new to PR"
