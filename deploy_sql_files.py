@@ -1,31 +1,26 @@
-# deploy_sql_files.py
-import os, hashlib, json, shutil, time
+# deploy_sql_files_gitdiff.py
+import os, json, shutil, time
 from datetime import datetime
 import snowflake.connector
 
 TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
-HASH_TRACKER_FILE = '.deployed_data.json'
 ARCHIVE_DIR = "./archive"
 DAYS = 7
+CHANGED_FILES_LIST = 'changed_files.txt'
 
-# Load previous deployed file data
-if os.path.exists(HASH_TRACKER_FILE):
-    with open(HASH_TRACKER_FILE, 'r') as f:
-        deployed_data = json.load(f)
+# Read changed files from git diff output
+if os.path.exists(CHANGED_FILES_LIST):
+    with open(CHANGED_FILES_LIST, 'r') as f:
+        changed_files = [line.strip() for line in f if line.strip().endswith('.sql')]
 else:
-    deployed_data = {}
+    print(f"❌ {CHANGED_FILES_LIST} not found.")
+    changed_files = []
 
-def get_file_hash(file_path):
-    with open(file_path, 'rb') as f:
-        return hashlib.sha256(f.read()).hexdigest()
+if not changed_files:
+    print("✅ No changed SQL files to deploy.")
+    exit(0)
 
-def run_sql_script(cursor, script_path, schema):
-    with open(script_path, 'r') as f:
-        sql = f.read()
-    print(f"Executing in {schema} schema:\n{sql}")
-    cursor.execute(f"USE SCHEMA {schema};")
-    cursor.execute(sql)
 
 def archive_old_version(file_path, old_content):
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
@@ -45,6 +40,7 @@ def clean_old_archives():
             os.remove(path)
             print(f"🧹 Deleted old archive: {file}")
 
+# Connect to Snowflake
 conn = snowflake.connector.connect(
     user=os.environ['SNOWFLAKE_USER'],
     password=os.environ['SNOWFLAKE_PASSWORD'],
@@ -54,41 +50,26 @@ conn = snowflake.connector.connect(
     database=os.environ['SNOWFLAKE_DATABASE'],
     schema='PUBLIC'
 )
-
 cursor = conn.cursor()
 
-# Deploy Tables (RPT)
-for file in sorted(os.listdir(TABLES_FOLDER)):
-    if file.endswith('.sql'):
-        path = os.path.join(TABLES_FOLDER, file)
-        with open(path, 'r') as f: content = f.read()
-        hash_val = hashlib.sha256(content.encode()).hexdigest()
-        prev = deployed_data.get(file)
-        if prev and prev['hash'] == hash_val:
-            print(f"⏩ Skipping {file} (unchanged)")
-        else:
-            if prev: archive_old_version(path, prev['content'])
-            run_sql_script(cursor, path, 'RPT')
-            deployed_data[file] = {'hash': hash_val, 'content': content}
-            print(f"✅ Done {file}")
+# Deploy changed files
+for file in changed_files:
+    if not os.path.exists(file):
+        print(f"⚠️ Skipping missing file: {file}")
+        continue
 
-# Deploy Stored Procedures (XFRM)
-for file in sorted(os.listdir(SP_FOLDER)):
-    if file.endswith('.sql'):
-        path = os.path.join(SP_FOLDER, file)
-        with open(path, 'r') as f: content = f.read()
-        hash_val = hashlib.sha256(content.encode()).hexdigest()
-        prev = deployed_data.get(file)
-        if prev and prev['hash'] == hash_val:
-            print(f"⏩ Skipping {file} (unchanged)")
-        else:
-            if prev: archive_old_version(path, prev['content'])
-            run_sql_script(cursor, path, 'XFRM')
-            deployed_data[file] = {'hash': hash_val, 'content': content}
-            print(f"✅ Done {file}")
+    schema = 'RPT' if file.startswith(TABLES_FOLDER) else 'XFRM'
+    with open(file, 'r') as f:
+        content = f.read()
 
-with open(HASH_TRACKER_FILE, 'w') as f:
-    json.dump(deployed_data, f, indent=2)
+    try:
+        print(f"Executing in {schema} schema: {file}")
+        cursor.execute(f"USE SCHEMA {schema};")
+        cursor.execute(content)
+        print(f"✅ Executed: {file}")
+    except Exception as e:
+        print(f"❌ Failed to execute {file}: {e}")
+        continue
 
 cursor.close()
 conn.close()
