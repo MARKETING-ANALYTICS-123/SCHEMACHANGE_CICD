@@ -1,53 +1,80 @@
 name: Deploy to DEV and Create PR to PROD
-
+ 
 on:
+
   push:
+
     branches: [DEV]
+
     paths: ['dbscripts2/**']
+
   workflow_dispatch:
-
+ 
 jobs:
-  deploy-and-pr:
+
+  deploy-and-create-pr:
+
     runs-on: ubuntu-latest
-
+ 
     steps:
-      - name: Checkout repo
+
+      - name: Checkout full repo (including all branches)
+
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
+        with:
+
+          fetch-depth: 0  # Important to fetch all refs
+ 
       - name: Set up Python
+
         uses: actions/setup-python@v2
+
         with:
+
           python-version: 3.8
-
+ 
       - name: Install dependencies
+
         run: pip install snowflake-connector-python
+ 
+      - name: Deploy to DEV Snowflake
 
-      - name: Get changed SQL files from DEV vs PROD
-        run: |
-          git fetch origin PROD
-          git diff --name-only origin/PROD...HEAD | grep '.sql$' > changed_files.txt || true
-          echo "Changed files:"
-          cat changed_files.txt
-
-      - name: Deploy changed files to DEV Snowflake
         env:
+
           SNOWFLAKE_ACCOUNT: ${{ secrets.DEV_SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.DEV_SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.DEV_SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_ROLE: ${{ secrets.DEV_SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.DEV_SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_DATABASE: ${{ secrets.DEV_SNOWFLAKE_DATABASE }}
-        run: python deploy_sql_files.py  # This script reads changed_files.txt
 
+          SNOWFLAKE_USER: ${{ secrets.DEV_SNOWFLAKE_USER }}
+
+          SNOWFLAKE_PASSWORD: ${{ secrets.DEV_SNOWFLAKE_PASSWORD }}
+
+          SNOWFLAKE_ROLE: ${{ secrets.DEV_SNOWFLAKE_ROLE }}
+
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.DEV_SNOWFLAKE_WAREHOUSE }}
+
+          SNOWFLAKE_DATABASE: ${{ secrets.DEV_SNOWFLAKE_DATABASE }}
+
+        run: python deploy_sql_files.py
+ 
       - name: Create Pull Request from DEV to PROD
+
         env:
+
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         run: |
+
+          gh auth status
+
           gh pr create \
+
             --title "🚀 Promote DEV to PROD" \
+
             --body "This PR promotes changes from DEV to PROD" \
+
             --base PROD \
+
             --head DEV \
-            || echo "⚠️ PR already exists or nothing to PR"
+
+            || echo "PR already exists or nothing to PR"
+ 
