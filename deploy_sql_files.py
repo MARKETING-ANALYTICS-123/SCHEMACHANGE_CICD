@@ -1,5 +1,5 @@
-# deploy_sql_files_gitdiff.py
-import os, json, shutil, time
+# deploy_sql_files.py
+import os, time
 from datetime import datetime
 import snowflake.connector
 
@@ -7,20 +7,14 @@ TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
 ARCHIVE_DIR = "./archive"
 DAYS = 7
-CHANGED_FILES_LIST = 'changed_files.txt'
 
-# Read changed files from git diff output
-if os.path.exists(CHANGED_FILES_LIST):
-    with open(CHANGED_FILES_LIST, 'r') as f:
-        changed_files = [line.strip() for line in f if line.strip().endswith('.sql')]
-else:
-    print(f"❌ {CHANGED_FILES_LIST} not found.")
-    changed_files = []
+# Read changed files from env variable
+changed_files_env = os.getenv('CHANGED_FILES', '').strip()
+changed_files = [f.strip() for f in changed_files_env.split('\n') if f.strip().endswith('.sql')]
 
 if not changed_files:
     print("✅ No changed SQL files to deploy.")
     exit(0)
-
 
 def archive_old_version(file_path, old_content):
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
@@ -58,12 +52,12 @@ for file in changed_files:
         print(f"⚠️ Skipping missing file: {file}")
         continue
 
-    schema = 'RPT' if file.startswith(TABLES_FOLDER) else 'XFRM'
+    schema = 'RPT' if TABLES_FOLDER in file else 'XFRM'
     with open(file, 'r') as f:
         content = f.read()
 
     try:
-        print(f"Executing in {schema} schema: {file}")
+        print(f"🚀 Executing in {schema} schema: {file}")
         cursor.execute(f"USE SCHEMA {schema};")
         cursor.execute(content)
         print(f"✅ Executed: {file}")
