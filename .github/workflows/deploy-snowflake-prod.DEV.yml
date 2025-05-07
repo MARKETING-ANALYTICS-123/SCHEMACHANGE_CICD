@@ -32,7 +32,7 @@ jobs:
           SNOWFLAKE_ROLE: ${{ secrets.DEV_SNOWFLAKE_ROLE }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.DEV_SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.DEV_SNOWFLAKE_DATABASE }}
-        run: python deploy_sql_files.py
+        run: python deploy_sql_files_dev.py
 
       - name: Create Pull Request from DEV to PROD
         env:
