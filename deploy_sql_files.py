@@ -29,28 +29,40 @@ print(f"📄 Changed files:\n{chr(10).join(changed_files)}")
 
 # --- Archiving helper ---
 def archive_old_file(file_path):
+    print(f"🔍 Preparing to archive: {file_path}")
     if not os.path.exists(file_path):
         print(f"⚠️ File not found for archiving: {file_path}")
         return
 
-    os.makedirs(ARCHIVE_DIR, exist_ok=True)
+    if not os.path.exists(ARCHIVE_DIR):
+        print(f"📁 Archive directory not found. Creating: {ARCHIVE_DIR}")
+        os.makedirs(ARCHIVE_DIR)
+    else:
+        print(f"📁 Archive directory exists: {ARCHIVE_DIR}")
+
     base_name = os.path.basename(file_path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_file = os.path.join(ARCHIVE_DIR, f"{base_name}_{timestamp}.sql")
 
-    shutil.copy2(file_path, archive_file)
-    print(f"🗄️ Archived: {archive_file}")
+    try:
+        shutil.copy2(file_path, archive_file)
+        print(f"🗄️ Archived {file_path} → {archive_file}")
+    except Exception as e:
+        print(f"❌ Failed to archive {file_path}: {e}")
 
 # --- Clean old archives ---
 def clean_old_archives():
     now = time.time()
     if not os.path.exists(ARCHIVE_DIR):
+        print("🧹 No archive folder to clean.")
         return
+    print("🧹 Cleaning up old archived files...")
     for file in os.listdir(ARCHIVE_DIR):
         path = os.path.join(ARCHIVE_DIR, file)
-        if os.path.isfile(path) and (now - os.path.getmtime(path)) > RETENTION_DAYS * 86400:
+        age = now - os.path.getmtime(path)
+        if os.path.isfile(path) and age > RETENTION_DAYS * 86400:
             os.remove(path)
-            print(f"🧹 Deleted old archive: {file}")
+            print(f"🧹 Deleted old archive: {file} (age: {age // 86400} days)")
 
 # --- Snowflake connection ---
 conn = snowflake.connector.connect(
