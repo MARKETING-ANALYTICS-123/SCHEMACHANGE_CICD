@@ -1,101 +1,41 @@
 name: Deploy to PROD Snowflake
-
+ 
 on:
-  pull_request:
-    branches: [PROD]
-    paths: ['dbscripts2/**']
   push:
     branches: [PROD]
     paths: ['dbscripts2/**']
   workflow_dispatch:
-
+ 
 jobs:
-  validate-pr:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.8
-
-      - name: Install dependencies
-        run: pip install snowflake-connector-python
-
-      - name: Get list of changed files
-        id: changes
-        run: |
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- '*.sql' || true)
-          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
-          echo "$CHANGED_FILES" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-          
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "No SQL files changed in this PR."
-          else
-            echo "Changed SQL files:"
-            echo "$CHANGED_FILES"
-          fi
-      
-      - name: Validate SQL files
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-          CHANGED_FILES: ${{ env.CHANGED_FILES }}
-        run: |
-          # Optional: Add validation script here
-          echo "Validating SQL files before deployment"
-          # You could run: python validate_sql_files.py
-
   deploy-prod:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+ 
     steps:
       - name: Checkout full repo (including all branches)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-
+ 
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: 3.8
-
+ 
       - name: Install dependencies
         run: pip install snowflake-connector-python
-
+ 
       - name: Get list of changed files
         id: changes
         run: |
-          # For merged PRs, get the recent merge commit changes
-          if [[ $(git log -1 --pretty=%B) == *"Merge pull request"* ]]; then
-            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD -- '*.sql' || true)
-          else
-            # Fallback to comparing DEV and PROD branches
-            git fetch origin DEV PROD
-            CHANGED_FILES=$(git diff --name-only origin/PROD...origin/DEV -- '*.sql' || true)
-          fi
-          
+ 
+ 
+          git fetch origin DEV PROD  
+ 
+          CHANGED_FILES=$(git diff --name-only origin/PROD...origin/DEV -- '*.sql' || true)
           echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
           echo "$CHANGED_FILES" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-          
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "No SQL files to deploy."
-          else
-            echo "SQL files to deploy:"
-            echo "$CHANGED_FILES"
-          fi
-
+ 
       - name: Deploy to PROD Snowflake
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
