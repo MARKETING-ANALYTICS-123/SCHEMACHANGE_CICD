@@ -29,10 +29,9 @@ jobs:
         id: changes
         run: |
 
-
-          git fetch origin PROD || true  
-
-          CHANGED_FILES=$(git diff --name-only origin/DEV...HEAD | grep '.sql$' || true)
+          git fetch origin DEV PROD 
+          
+          CHANGED_FILES=$(git diff --name-only origin/PROD...origin/DEV -- '*.sql' || true)
           echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
           echo "$CHANGED_FILES" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
