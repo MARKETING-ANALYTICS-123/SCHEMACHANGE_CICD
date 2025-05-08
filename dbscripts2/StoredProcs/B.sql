@@ -2,7 +2,9 @@
 Create or replace table Arjit_Test 
 (
 
-  B NUMBER(02,0)
+
+  B NUMBER(08,0)
+
 
 )
 
