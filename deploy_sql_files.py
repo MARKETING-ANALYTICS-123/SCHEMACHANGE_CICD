@@ -1,5 +1,6 @@
 import os, time, subprocess
 from datetime import datetime
+import shutil
 import snowflake.connector
 
 TABLES_FOLDER = 'dbscripts2/Tables'
@@ -16,13 +17,17 @@ if not changed_files:
     print("✅ No changed SQL files to deploy.")
     exit(0)
 
-def archive_old_version(file_path, old_content):
+def archive_old_file(file_path):
+    if not os.path.exists(file_path):
+        print(f"⚠️ File not found for archiving: {file_path}")
+        return
+
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
     base_name = os.path.basename(file_path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_file = os.path.join(ARCHIVE_DIR, f"{base_name}_{timestamp}.sql")
-    with open(archive_file, 'w') as f:
-        f.write(old_content)
+
+    shutil.copy2(file_path, archive_file)
     print(f"🗄️ Archived: {archive_file}")
 
 def clean_old_archives():
@@ -51,6 +56,9 @@ for file in changed_files:
     if not os.path.exists(file):
         print(f"⚠️ Skipping missing file: {file}")
         continue
+
+    # Archive the old file
+    archive_old_file(file)
 
     schema = 'RPT' if TABLES_FOLDER in file else 'XFRM'
     with open(file, 'r') as f:
