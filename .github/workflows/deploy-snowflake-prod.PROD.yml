@@ -7,14 +7,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-and-archive:
+  deploy-to-prod:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout full repo (including all branches)
+      - name: Checkout code
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -24,20 +22,7 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python
 
-      - name: Ensure archive folder exists
-        run: mkdir -p archive
-
-      - name: Get list of changed files
-        id: changes
-        run: |
-          git fetch origin DEV PROD
-          git fetch origin DEV
-          CHANGED_FILES=$(git diff --name-only HEAD...origin/DEV -- '*.sql' || true)
-          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
-          echo "$CHANGED_FILES" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-      - name: Deploy to PROD and Archive Old Files
+      - name: Deploy SQL to PROD
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
@@ -45,13 +30,4 @@ jobs:
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-          CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: python deploy_sql_files.py
-
-      - name: List Archive Folder Contents
-        run: |
-          echo "Checking archive folder contents..."
-          ls -la archive || echo "Archive folder does not exist!"
-
-      - name: Check Archive Folder Permissions
-        run: ls -ld archive
