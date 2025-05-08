@@ -33,7 +33,7 @@ jobs:
 
           git fetch origin DEV PROD  
 
->>>>>>> PROD
+
           CHANGED_FILES=$(git diff --name-only origin/PROD...origin/DEV -- '*.sql' || true)
           echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
           echo "$CHANGED_FILES" >> $GITHUB_ENV
