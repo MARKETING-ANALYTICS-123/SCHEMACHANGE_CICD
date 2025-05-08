@@ -1,4 +1,4 @@
-name: Deploy to PROD and Archive
+name: Deploy to PROD Snowflake
 
 on:
   push:
@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-and-archive-prod:
+  deploy-and-archive:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout full repo (including all branches)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -24,6 +24,19 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python
 
+      - name: Ensure archive folder exists
+        run: mkdir -p archive
+
+      - name: Get list of changed files
+        id: changes
+        run: |
+          git fetch origin DEV PROD
+          git fetch origin DEV
+          CHANGED_FILES=$(git diff --name-only HEAD...origin/DEV -- '*.sql' || true)
+          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
+          echo "$CHANGED_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Deploy to PROD and Archive Old Files
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -32,20 +45,13 @@ jobs:
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: python deploy_sql_files.py
 
-      - name: Commit archive files to PROD branch
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+      - name: List Archive Folder Contents
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}
+          echo "Checking archive folder contents..."
+          ls -la archive || echo "Archive folder does not exist!"
 
-          git add archive/*.sql || true
-          if git diff --cached --quiet; then
-            echo "No archive changes to commit."
-          else
-            git commit -m "📦 Archived old SQL files during PROD deployment"
-            git push origin PROD
-          fi
+      - name: Check Archive Folder Permissions
+        run: ls -ld archive
