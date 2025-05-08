@@ -2,7 +2,11 @@ import os
 import time
 import shutil
 from datetime import datetime
+
 import subprocess
+
+import shutil
+
 import snowflake.connector
 
 # Paths and settings
@@ -21,7 +25,6 @@ if not changed_files:
     exit(0)
 
 def archive_old_file(file_path):
-    """Archive the old version of a file."""
     if not os.path.exists(file_path):
         print(f"⚠️ File not found for archiving: {file_path}")
         return
@@ -30,9 +33,11 @@ def archive_old_file(file_path):
     base_name = os.path.basename(file_path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_file = os.path.join(ARCHIVE_DIR, f"{base_name}_{timestamp}.sql")
-    
+
+
     shutil.copy2(file_path, archive_file)
-    print(f"🗄️ File archived: {archive_file}")
+    print(f"🗄️ Archived: {archive_file}")
+
 
 def clean_old_archives():
     """Remove archived files older than the configured retention period."""
@@ -63,7 +68,9 @@ for file in changed_files:
         print(f"⚠️ Skipping missing file: {file}")
         continue
 
-    # Archive the old version of the file
+
+    # Archive the old file
+
     archive_old_file(file)
 
     schema = 'RPT' if TABLES_FOLDER in file else 'XFRM'
