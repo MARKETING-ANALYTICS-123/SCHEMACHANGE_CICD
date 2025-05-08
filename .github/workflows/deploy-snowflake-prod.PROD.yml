@@ -28,8 +28,8 @@ jobs:
       - name: Get list of changed files
         id: changes
         run: |
-          git fetch origin main || true  # Or replace with actual base branch if different
-          CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep '.sql$' || true)
+          git fetch origin PROD || true  # Or replace with actual base branch if different
+          CHANGED_FILES=$(git diff --name-only origin/DEV...HEAD | grep '.sql$' || true)
           echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
           echo "$CHANGED_FILES" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
