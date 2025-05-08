@@ -5,47 +5,68 @@ from datetime import datetime
 import subprocess
 import snowflake.connector
 
-# Paths and settings
+# --- Configuration ---
 TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
 ARCHIVE_DIR = "./archive"
-DAYS = 7
 
-# Detect changed files using git diff
-print("🔍 Detecting changed SQL files...")
-result = subprocess.run(['git', 'diff', '--name-only', 'origin/PROD...HEAD'], capture_output=True, text=True)
-changed_files = [f.strip() for f in result.stdout.split('\n') if f.strip().endswith('.sql')]
+RETENTION_DAYS = 30
+
+
+# --- Git: Fetch and diff ---
+print("🔍 Fetching and detecting changed SQL files...")
+subprocess.run(['git', 'fetch', 'origin'], check=True)
+
+result = subprocess.run(
+    ['git', 'diff', '--name-only', 'origin/PROD...HEAD', '--', '*.sql'],
+    capture_output=True, text=True
+)
+changed_files = [f.strip() for f in result.stdout.split('\n') if f.strip()]
 
 if not changed_files:
     print("✅ No changed SQL files to process.")
     exit(0)
 
+print(f"📄 Changed files:\n{chr(10).join(changed_files)}")
+
+# --- Archiving helper ---
 def archive_old_file(file_path):
-    """Archive the old version of a file."""
+    print(f"🔍 Preparing to archive: {file_path}")
     if not os.path.exists(file_path):
         print(f"⚠️ File not found for archiving: {file_path}")
         return
 
-    os.makedirs(ARCHIVE_DIR, exist_ok=True)
+    if not os.path.exists(ARCHIVE_DIR):
+        print(f"📁 Archive directory not found. Creating: {ARCHIVE_DIR}")
+        os.makedirs(ARCHIVE_DIR)
+    else:
+        print(f"📁 Archive directory exists: {ARCHIVE_DIR}")
+
     base_name = os.path.basename(file_path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_file = os.path.join(ARCHIVE_DIR, f"{base_name}_{timestamp}.sql")
-    
-    shutil.copy2(file_path, archive_file)
-    print(f"🗄️ File archived: {archive_file}")
 
+    try:
+        shutil.copy2(file_path, archive_file)
+        print(f"🗄️ Archived {file_path} → {archive_file}")
+    except Exception as e:
+        print(f"❌ Failed to archive {file_path}: {e}")
+
+# --- Clean old archives ---
 def clean_old_archives():
-    """Remove archived files older than the configured retention period."""
     now = time.time()
     if not os.path.exists(ARCHIVE_DIR):
+        print("🧹 No archive folder to clean.")
         return
+    print("🧹 Cleaning up old archived files...")
     for file in os.listdir(ARCHIVE_DIR):
         path = os.path.join(ARCHIVE_DIR, file)
-        if os.path.isfile(path) and (now - os.path.getmtime(path)) > DAYS * 86400:
+        age = now - os.path.getmtime(path)
+        if os.path.isfile(path) and age > RETENTION_DAYS * 86400:
             os.remove(path)
-            print(f"🧹 Deleted old archive: {file}")
+            print(f"🧹 Deleted old archive: {file} (age: {age // 86400} days)")
 
-# Connect to Snowflake
+# --- Snowflake connection ---
 conn = snowflake.connector.connect(
     user=os.environ['SNOWFLAKE_USER'],
     password=os.environ['SNOWFLAKE_PASSWORD'],
@@ -57,17 +78,18 @@ conn = snowflake.connector.connect(
 )
 cursor = conn.cursor()
 
-# Process each changed file
+# --- Deploy changed SQL files ---
 for file in changed_files:
-    if not os.path.exists(file):
-        print(f"⚠️ Skipping missing file: {file}")
+    full_path = os.path.join(os.getcwd(), file)
+
+    if not os.path.exists(full_path):
+        print(f"⚠️ Skipping missing file: {full_path}")
         continue
 
-    # Archive the old version of the file
-    archive_old_file(file)
+    archive_old_file(full_path)
 
     schema = 'RPT' if TABLES_FOLDER in file else 'XFRM'
-    with open(file, 'r') as f:
+    with open(full_path, 'r') as f:
         content = f.read()
 
     try:
@@ -78,6 +100,7 @@ for file in changed_files:
     except Exception as e:
         print(f"❌ Deployment failed for {file}: {e}")
 
+# --- Cleanup ---
 cursor.close()
 conn.close()
 clean_old_archives()

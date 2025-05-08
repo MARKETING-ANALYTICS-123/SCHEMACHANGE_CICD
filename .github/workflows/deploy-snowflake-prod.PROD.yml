@@ -1,42 +1,42 @@
 name: Deploy to PROD Snowflake
- 
+
 on:
   push:
     branches: [PROD]
     paths: ['dbscripts2/**']
   workflow_dispatch:
- 
+
 jobs:
-  deploy-prod:
+  deploy-and-archive:
     runs-on: ubuntu-latest
- 
+
     steps:
       - name: Checkout full repo (including all branches)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
- 
+
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: 3.8
- 
+
       - name: Install dependencies
         run: pip install snowflake-connector-python
- 
+
+      - name: Ensure archive folder exists
+        run: mkdir -p archive
+
       - name: Get list of changed files
         id: changes
         run: |
- 
- 
-          git fetch origin DEV PROD  
- 
+          git fetch origin DEV PROD
           CHANGED_FILES=$(git diff --name-only origin/PROD...origin/DEV -- '*.sql' || true)
           echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
           echo "$CHANGED_FILES" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
- 
-      - name: Deploy to PROD Snowflake
+
+      - name: Deploy to PROD and Archive Old Files
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
@@ -46,3 +46,11 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: python deploy_sql_files.py
+
+      - name: List Archive Folder Contents
+        run: |
+          echo "Checking archive folder contents..."
+          ls -la archive || echo "Archive folder does not exist!"
+
+      - name: Check Archive Folder Permissions
+        run: ls -ld archive
