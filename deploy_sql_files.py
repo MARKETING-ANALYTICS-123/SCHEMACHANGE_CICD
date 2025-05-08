@@ -13,7 +13,7 @@ import snowflake.connector
 TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
 ARCHIVE_DIR = "./archive"
-DAYS = 7
+DAYS = 30
 
 # Detect changed files using git diff
 print("🔍 Detecting changed SQL files...")
