@@ -1,4 +1,4 @@
-name: Deploy to DEV and Archive
+name: Deploy to DEV and Create PR to PROD
 
 on:
   push:
@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-and-archive-dev:
+  deploy-and-create-pr:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout full repository
+      - name: Checkout full repo (including all branches)
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Important to fetch all refs
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python
 
-      - name: Deploy to DEV and Archive Old Files
+      - name: Deploy to DEV Snowflake
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.DEV_SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.DEV_SNOWFLAKE_USER }}
@@ -34,25 +34,14 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.DEV_SNOWFLAKE_DATABASE }}
         run: python deploy_sql_files.py
 
-      -   name: Commit archive files locally
-          run: |
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add archive/*.sql || true
-            if git diff --cached --quiet; then
-            echo "No archive changes to commit."
-            else
-              git commit -m "📦 Archived old SQL files during DEV deployment"
-            fi
-          
-      - name: Create Archive Pull Request to DEV
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-          commit-message: "📦 Archived old SQL files during DEV deployment"
-          title: "Automated Archive PR to DEV"
-          body: |
-            This PR archives old SQL files during DEV deployment.
-          branch: auto/archive-${{ github.run_id }}
-          base: DEV
-          delete-branch: true
+      - name: Create Pull Request from DEV to PROD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh auth status
+          gh pr create \
+            --title "🚀 Promote DEV to PROD" \
+            --body "This PR promotes changes from DEV to PROD" \
+            --base PROD \
+            --head DEV \
+            || echo "PR already exists or nothing to PR"
