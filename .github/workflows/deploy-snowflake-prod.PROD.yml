@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-and-archive:
+  deploy-to-prod:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout full repo (including all branches)
+      - name: Checkout full repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -27,30 +27,21 @@ jobs:
       - name: Ensure archive folder exists
         run: mkdir -p archive
 
-      - name: Get list of changed files
+      - name: Get list of changed files from last commit
         id: changes
         run: |
-          git fetch origin DEV PROD
-          CHANGED_FILES=$(git diff --name-only origin/PROD...origin/DEV -- '*.sql' || true)
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '.sql$' || true)
           echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
           echo "$CHANGED_FILES" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Deploy to PROD and Archive Old Files
         env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_ACCOUNT: ${{ secrets.PROD_SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.PROD_SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.PROD_SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_ROLE: ${{ secrets.PROD_SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.PROD_SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.PROD_SNOWFLAKE_DATABASE }}
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: python deploy_sql_files.py
-
-      - name: List Archive Folder Contents
-        run: |
-          echo "Checking archive folder contents..."
-          ls -la archive || echo "Archive folder does not exist!"
-
-      - name: Check Archive Folder Permissions
-        run: ls -ld archive
