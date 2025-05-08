@@ -1,4 +1,4 @@
-name: Deploy to DEV and Archive
+name: Deploy to DEV and Create PR to PROD
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-and-archive-dev:
+  deploy-and-archive:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,6 +24,18 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python
 
+      - name: Ensure archive folder exists
+        run: mkdir -p archive
+
+      - name: Get list of changed files
+        id: changes
+        run: |
+          git fetch origin PROD
+          CHANGED_FILES=$(git diff --name-only origin/PROD...HEAD | grep '.sql$' || true)
+          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
+          echo "$CHANGED_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Deploy to DEV and Archive Old Files
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.DEV_SNOWFLAKE_ACCOUNT }}
@@ -32,23 +44,8 @@ jobs:
           SNOWFLAKE_ROLE: ${{ secrets.DEV_SNOWFLAKE_ROLE }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.DEV_SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.DEV_SNOWFLAKE_DATABASE }}
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: python deploy_sql_files.py
-
-      - name: Commit archive files to DEV branch
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}
-
-          git add archive/*.sql || true
-          if git diff --cached --quiet; then
-            echo "No archive changes to commit."
-          else
-            git commit -m "📦 Archived old SQL files during DEV deployment"
-            git push origin DEV
-          fi
 
       - name: Create Pull Request from DEV to PROD
         env:
