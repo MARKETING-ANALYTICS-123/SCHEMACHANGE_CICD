@@ -9,7 +9,9 @@ import snowflake.connector
 TABLES_FOLDER = 'dbscripts2/Tables'
 SP_FOLDER = 'dbscripts2/StoredProcs'
 ARCHIVE_DIR = "./archive"
+
 RETENTION_DAYS = 30
+
 
 # --- Git: Fetch and diff ---
 print("🔍 Fetching and detecting changed SQL files...")
