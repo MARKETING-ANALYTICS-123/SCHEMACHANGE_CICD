@@ -1,56 +1,107 @@
-name: Deploy to PROD Snowflake
+import os
+import time
+import shutil
+from datetime import datetime
+import subprocess
+import snowflake.connector
 
-on:
-  push:
-    branches: [PROD]
-    paths: ['dbscripts2/**']
-  workflow_dispatch:
+# --- Configuration ---
+TABLES_FOLDER = 'dbscripts2/Tables'
+SP_FOLDER = 'dbscripts2/StoredProcs'
+ARCHIVE_DIR = "./archive"
 
-jobs:
-  deploy-and-archive:
-    runs-on: ubuntu-latest
+RETENTION_DAYS = 30
 
-    steps:
-      - name: Checkout full repo (including all branches)
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.8
+# --- Git: Fetch and diff ---
+print("🔍 Fetching and detecting changed SQL files...")
+subprocess.run(['git', 'fetch', 'origin'], check=True)
 
-      - name: Install dependencies
-        run: pip install snowflake-connector-python
+result = subprocess.run(
+    ['git', 'diff', '--name-only', 'origin/PROD...HEAD', '--', '*.sql'],
+    capture_output=True, text=True
+)
+changed_files = [f.strip() for f in result.stdout.split('\n') if f.strip()]
 
-      - name: Ensure archive folder exists
-        run: mkdir -p archive
+if not changed_files:
+    print("✅ No changed SQL files to process.")
+    exit(0)
 
-      - name: Get list of changed files
-        id: changes
-        run: |
-          git fetch origin DEV PROD
-          CHANGED_FILES=$(git diff --name-only origin/PROD...origin/DEV -- '*.sql' || true)
-          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
-          echo "$CHANGED_FILES" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+print(f"📄 Changed files:\n{chr(10).join(changed_files)}")
 
-      - name: Deploy to PROD and Archive Old Files
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-          CHANGED_FILES: ${{ env.CHANGED_FILES }}
-        run: python deploy_sql_files.py
+# --- Archiving helper ---
+def archive_old_file(file_path):
+    print(f"🔍 Preparing to archive: {file_path}")
+    if not os.path.exists(file_path):
+        print(f"⚠️ File not found for archiving: {file_path}")
+        return
 
-      - name: List Archive Folder Contents
-        run: |
-          echo "Checking archive folder contents..."
-          ls -la archive || echo "Archive folder does not exist!"
+    if not os.path.exists(ARCHIVE_DIR):
+        print(f"📁 Archive directory not found. Creating: {ARCHIVE_DIR}")
+        os.makedirs(ARCHIVE_DIR)
+    else:
+        print(f"📁 Archive directory exists: {ARCHIVE_DIR}")
 
-      - name: Check Archive Folder Permissions
-        run: ls -ld archive
+    base_name = os.path.basename(file_path)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_file = os.path.join(ARCHIVE_DIR, f"{base_name}_{timestamp}.sql")
+
+    try:
+        shutil.copy2(file_path, archive_file)
+        print(f"🗄️ Archived {file_path} → {archive_file}")
+    except Exception as e:
+        print(f"❌ Failed to archive {file_path}: {e}")
+
+# --- Clean old archives ---
+def clean_old_archives():
+    now = time.time()
+    if not os.path.exists(ARCHIVE_DIR):
+        print("🧹 No archive folder to clean.")
+        return
+    print("🧹 Cleaning up old archived files...")
+    for file in os.listdir(ARCHIVE_DIR):
+        path = os.path.join(ARCHIVE_DIR, file)
+        age = now - os.path.getmtime(path)
+        if os.path.isfile(path) and age > RETENTION_DAYS * 86400:
+            os.remove(path)
+            print(f"🧹 Deleted old archive: {file} (age: {age // 86400} days)")
+
+# --- Snowflake connection ---
+conn = snowflake.connector.connect(
+    user=os.environ['SNOWFLAKE_USER'],
+    password=os.environ['SNOWFLAKE_PASSWORD'],
+    account=os.environ['SNOWFLAKE_ACCOUNT'],
+    role=os.environ['SNOWFLAKE_ROLE'],
+    warehouse=os.environ['SNOWFLAKE_WAREHOUSE'],
+    database=os.environ['SNOWFLAKE_DATABASE'],
+    schema='PUBLIC'
+)
+cursor = conn.cursor()
+
+# --- Deploy changed SQL files ---
+for file in changed_files:
+    full_path = os.path.join(os.getcwd(), file)
+
+    if not os.path.exists(full_path):
+        print(f"⚠️ Skipping missing file: {full_path}")
+        continue
+
+    archive_old_file(full_path)
+
+    schema = 'RPT' if TABLES_FOLDER in file else 'XFRM'
+    with open(full_path, 'r') as f:
+        content = f.read()
+
+    try:
+        print(f"🚀 Deploying to schema {schema}: {file}")
+        cursor.execute(f"USE SCHEMA {schema};")
+        cursor.execute(content)
+        print(f"✅ Successfully deployed: {file}")
+    except Exception as e:
+        print(f"❌ Deployment failed for {file}: {e}")
+
+# --- Cleanup ---
+cursor.close()
+conn.close()
+clean_old_archives()
+print("🎉 Deployment complete.")
