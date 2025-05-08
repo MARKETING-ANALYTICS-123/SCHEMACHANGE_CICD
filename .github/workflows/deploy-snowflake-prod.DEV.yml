@@ -43,6 +43,7 @@ jobs:
             echo "No archive changes to commit."
             else
               git commit -m "📦 Archived old SQL files during DEV deployment"
+            fi
           
       - name: Create Archive Pull Request to DEV
         uses: peter-evans/create-pull-request@v5
