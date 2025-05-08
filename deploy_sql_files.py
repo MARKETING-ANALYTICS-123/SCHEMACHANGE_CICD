@@ -1,146 +1,56 @@
-import os
-import hashlib
-import json
-import shutil
-import time
-from datetime import datetime
-import snowflake.connector
+name: Deploy to PROD Snowflake
 
-# Folder paths
-TABLES_FOLDER = 'dbscripts2/Tables'
-SP_FOLDER = 'dbscripts2/StoredProcs'
-HASH_TRACKER_FILE = '.deployed_data.json'
-ARCHIVE_DIR = "./archive"
-DAYS = 7
+on:
+  push:
+    branches: [PROD]
+    paths: ['dbscripts2/**']
+  workflow_dispatch:
 
-# Load previous deployed file data (hash + content)
-if os.path.exists(HASH_TRACKER_FILE):
-    with open(HASH_TRACKER_FILE, 'r') as f:
-        deployed_data = json.load(f)
-else:
-    deployed_data = {}
+jobs:
+  deploy-and-archive:
+    runs-on: ubuntu-latest
 
-# Function to calculate hash
-def get_file_hash(file_path):
-    with open(file_path, 'rb') as f:
-        file_data = f.read()
-        return hashlib.sha256(file_data).hexdigest()
+    steps:
+      - name: Checkout full repo (including all branches)
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-# Function to run SQL in Snowflake
-def run_sql_script(cursor, script_path, schema):
-    with open(script_path, 'r') as f:
-        sql = f.read()
-    print(f"Executing in {schema} schema: {sql}")
-    cursor.execute(f"USE SCHEMA {schema};")
-    cursor.execute(sql)
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
 
-# Archive old version (from previous deployment data)
-def archive_old_version(file_path, old_content):
-    if not os.path.exists(ARCHIVE_DIR):
-        os.makedirs(ARCHIVE_DIR)
+      - name: Install dependencies
+        run: pip install snowflake-connector-python
 
-    base_name = os.path.basename(file_path)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    archive_name = f"{base_name.split('.')[0]}_{timestamp}.sql"
-    archive_file_path = os.path.join(ARCHIVE_DIR, archive_name)
+      - name: Ensure archive folder exists
+        run: mkdir -p archive
 
-    with open(archive_file_path, 'w') as f:
-        f.write(old_content)
-    print(f"🗄️ Archived old version of: {file_path} -> {archive_name}")
+      - name: Get list of changed files
+        id: changes
+        run: |
+          git fetch origin DEV PROD
+          CHANGED_FILES=$(git diff --name-only origin/PROD...origin/DEV -- '*.sql' || true)
+          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
+          echo "$CHANGED_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-# Clean up old archive files
-def clean_old_archives():
-    now = time.time()
-    if not os.path.exists(ARCHIVE_DIR):
-        return
+      - name: Deploy to PROD and Archive Old Files
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
+        run: python deploy_sql_files.py
 
-    for file in os.listdir(ARCHIVE_DIR):
-        file_path = os.path.join(ARCHIVE_DIR, file)
-        if os.path.isfile(file_path):
-            age = now - os.path.getmtime(file_path)
-            if age > DAYS * 86400:
-                os.remove(file_path)
-                print(f"🧹 Deleted old archive: {file}")
+      - name: List Archive Folder Contents
+        run: |
+          echo "Checking archive folder contents..."
+          ls -la archive || echo "Archive folder does not exist!"
 
-# Connect to Snowflake
-conn = snowflake.connector.connect(
-    user=os.environ['SNOWFLAKE_USER'],
-    password=os.environ['SNOWFLAKE_PASSWORD'],
-    account=os.environ['SNOWFLAKE_ACCOUNT'],
-    role=os.environ['SNOWFLAKE_ROLE'],
-    warehouse=os.environ['SNOWFLAKE_WAREHOUSE'],
-    database=os.environ['SNOWFLAKE_DATABASE'],
-    schema='PUBLIC'
-)
-
-cursor = conn.cursor()
-
-# Deploy Tables to RPT schema
-for file_name in sorted(os.listdir(TABLES_FOLDER)):
-    if file_name.endswith('.sql'):
-        full_path = os.path.join(TABLES_FOLDER, file_name)
-
-        with open(full_path, 'r') as f:
-            current_content = f.read()
-
-        current_hash = hashlib.sha256(current_content.encode()).hexdigest()
-        previous_data = deployed_data.get(file_name)
-
-        if previous_data and previous_data['hash'] == current_hash:
-            print(f"⏩ Skipping {file_name} (unchanged)")
-        else:
-            if previous_data:
-                # Archive the old version only if content has changed
-                archive_old_version(full_path, previous_data['content'])
-
-            print(f"🚀 Running {file_name} in RPT schema")
-            run_sql_script(cursor, full_path, 'RPT')
-
-            # Save new hash + content
-            deployed_data[file_name] = {
-                'hash': current_hash,
-                'content': current_content
-            }
-
-            print(f"✅ Done {file_name}")
-
-# Deploy Stored Procedures to XFRM schema
-for file_name in sorted(os.listdir(SP_FOLDER)):
-    if file_name.endswith('.sql'):
-        full_path = os.path.join(SP_FOLDER, file_name)
-
-        with open(full_path, 'r') as f:
-            current_content = f.read()
-
-        current_hash = hashlib.sha256(current_content.encode()).hexdigest()
-        previous_data = deployed_data.get(file_name)
-
-        if previous_data and previous_data['hash'] == current_hash:
-            print(f"⏩ Skipping {file_name} (unchanged)")
-        else:
-            if previous_data:
-                # Archive the old version only if content has changed
-                archive_old_version(full_path, previous_data['content'])
-
-            print(f"🚀 Running {file_name} in XFRM schema")
-            run_sql_script(cursor, full_path, 'XFRM')
-
-            # Save new hash + content
-            deployed_data[file_name] = {
-                'hash': current_hash,
-                'content': current_content
-            }
-
-            print(f"✅ Done {file_name}")
-
-# Save updated deployment data
-with open(HASH_TRACKER_FILE, 'w') as f:
-    json.dump(deployed_data, f, indent=2)
-
-# Close connection
-cursor.close()
-conn.close()
-print("🎉 Deployment complete.")
-
-# Clean up old archives
-clean_old_archives()
+      - name: Check Archive Folder Permissions
+        run: ls -ld archive
