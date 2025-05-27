@@ -40,15 +40,15 @@ jobs:
           fi
           project_lower=$(echo "$project" | tr '[:upper:]' '[:lower:]')
           echo "PROJECT_NAME=$project_lower" >> $GITHUB_ENV
+          echo "SECRET_NAME=$(echo ${project}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')" >> $GITHUB_ENV
           echo "✅ Detected project: $project_lower"
 
       - name: Write private key to file
         run: |
-          secret_name="$(echo ${PROJECT_NAME}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')"
-          echo "🔐 Using secret: $secret_name"
-          secret_value="${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT_NAME | upper)] }}"
+          echo "🔐 Using secret: $SECRET_NAME"
+          secret_value="${{ secrets[env.SECRET_NAME] }}"
           if [ -z "$secret_value" ]; then
-            echo "❌ Secret $secret_name not found. Please add it to GitHub secrets."
+            echo "❌ Secret $SECRET_NAME not found. Please add it to GitHub secrets."
             exit 1
           fi
           mkdir -p keys
