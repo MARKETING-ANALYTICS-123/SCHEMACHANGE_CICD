@@ -1,50 +1,58 @@
-
 name: Deploy to PROD Snowflake
 
 on:
   push:
     branches: [PROD]
-    paths:
-      - 'dbscripts2/**'
+    paths: ['dbscripts2/**']
   workflow_dispatch:
-    inputs:
-      project_name:
-        description: 'Project name to deploy (e.g. sca, marketing, sourcing)'
-        required: true
-        default: 'SCA'
 
 jobs:
   deploy-to-prod:
     runs-on: ubuntu-latest
 
-    env:
-      PROJECT_NAME: ${{ github.event.inputs.project_name || 'sca' }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Get changed files
+        id: get-changed
+        run: |
+          git fetch origin ${{ github.event.before }}
+          git diff --name-only ${{ github.event.before }} ${{ github.sha }} > changed_files.txt
+          echo "Changed files:"
+          cat changed_files.txt
+
+      - name: Extract project name from changed files
+        id: extract-project
+        run: |
+          project=$(awk -F'/' '/^dbscripts2\// { print $2; exit }' changed_files.txt | tr '[:upper:]' '[:lower:]')
+          echo "PROJECT_NAME=$project" >> $GITHUB_ENV
+          echo "Detected project: $project"
+
+      - name: Validate secret exists
+        run: |
+          secret_name="$(echo ${PROJECT_NAME}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')"
+          if [ -z "${{ secrets[secret_name] }}" ]; then
+            echo "❌ Secret $secret_name not found. Please add it to GitHub secrets."
+            exit 1
+          fi
+
+      - name: Write private key
+        run: |
+          secret_name="$(echo ${PROJECT_NAME}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')"
+          mkdir -p keys
+          printf '%b' "${{ secrets[secret_name] }}" > keys/temp_key.p8
+          chmod 600 keys/temp_key.p8
+
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
-          python-version: 3.8
+          python-version: '3.8'
 
       - name: Install dependencies
         run: pip install snowflake-connector-python cryptography
 
-      - name: Write private key dynamically
-        run: |
-          mkdir -p keys
-          secret_name="${PROJECT_NAME^^}_PRIVATE_KEY"
-          private_key="${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT_NAME)] }}"
-          if [ -z "$private_key" ]; then
-            echo "❌ Secret $secret_name not found. Please add it to GitHub secrets."
-            exit 1
-          fi
-          printf '%b' "$private_key" > keys/temp_key.p8
-          chmod 600 keys/temp_key.p8
-
-      - name: Deploy SQL to PROD
+      - name: Deploy SQL to Snowflake
         env:
           CONFIG_FILE: configs/${{ env.PROJECT_NAME }}.json
         run: python deploy_sql_files.py
