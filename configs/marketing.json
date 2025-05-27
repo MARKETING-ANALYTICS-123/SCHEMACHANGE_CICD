@@ -10,11 +10,11 @@
   "key_path": "keys/temp_key.p8",
   "folders": {
     "tables": {
-      "path": "dbscripts2/sca/XFRM/tables",
+      "path": "dbscripts2/MARKETING/XFRM/tables",
       "default_schema": "XFRM"
     },
     "stored_procs": {
-      "path": "dbscripts2/sca/RPT/StoredProcs",
+      "path": "dbscripts2/MARKETING/RPT/StoredProcs",
       "default_schema": "RPT"
     }
   }
