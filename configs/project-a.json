@@ -10,12 +10,12 @@
   "key_path": "keys/temp_key.p8",
   "folders": {
     "tables": {
-      "path": "dbscripts/Tables",
+      "path": "dbscripts2/Tables",
       "default_schema": "RPT",
       "schema_map_file": "schema_map.json"
     },
     "stored_procs": {
-      "path": "dbscripts/StoredProcs",
+      "path": "dbscripts2/StoredProcs",
       "default_schema": "XFRM"
     },
     "tasks": {
