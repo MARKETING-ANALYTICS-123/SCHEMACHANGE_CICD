@@ -7,7 +7,7 @@
     "warehouse": "COMPUTE_WH",
     "database": "DEMO_DB"
   },
-  "key_path": "keys/project-a-key.p8",
+  "key_path": "keys/temp_key.p8",
   "folders": {
     "tables": {
       "path": "projects/project-a/dbscripts/Tables",
