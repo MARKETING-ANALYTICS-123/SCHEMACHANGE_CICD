@@ -1,0 +1,26 @@
+{
+  "project_name": "project-a",
+  "snowflake": {
+    "account": "CAABMGX-OO80832.snowflakecomputing.com",
+    "user": "ARJIT",
+    "role": "ACCOUNTADMIN",
+    "warehouse": "COMPUTE_WH",
+    "database": "DEMO_DB"
+  },
+  "key_path": "keys/project-a-key.p8",
+  "folders": {
+    "tables": {
+      "path": "projects/project-a/dbscripts/Tables",
+      "default_schema": "RPT",
+      "schema_map_file": "schema_map.json"
+    },
+    "stored_procs": {
+      "path": "projects/project-a/dbscripts/StoredProcs",
+      "default_schema": "XFRM"
+    },
+    "tasks": {
+      "path": "projects/project-a/dbscripts/Tasks",
+      "default_schema": "TKS"
+    }
+  }
+}
