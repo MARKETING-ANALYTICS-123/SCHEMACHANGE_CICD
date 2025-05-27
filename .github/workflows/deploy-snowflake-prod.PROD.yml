@@ -14,6 +14,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+
+      - name: Install dependencies
+        run: pip install snowflake-connector-python cryptography
+
       - name: Get changed files
         id: get-changed
         run: |
@@ -25,32 +33,27 @@ jobs:
       - name: Extract project name from changed files
         id: extract-project
         run: |
-          project=$(awk -F'/' '/^dbscripts2\// { print $2; exit }' changed_files.txt | tr '[:upper:]' '[:lower:]')
-          echo "PROJECT_NAME=$project" >> $GITHUB_ENV
-          echo "Detected project: $project"
+          project=$(awk -F'/' '/^dbscripts2\// { print $2; exit }' changed_files.txt)
+          if [ -z "$project" ]; then
+            echo "❌ Could not detect project name from changed files."
+            exit 1
+          fi
+          project_lower=$(echo "$project" | tr '[:upper:]' '[:lower:]')
+          echo "PROJECT_NAME=$project_lower" >> $GITHUB_ENV
+          echo "✅ Detected project: $project_lower"
 
-      - name: Validate secret exists
+      - name: Write private key to file
         run: |
           secret_name="$(echo ${PROJECT_NAME}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')"
-          if [ -z "${{ secrets[secret_name] }}" ]; then
+          echo "🔐 Using secret: $secret_name"
+          secret_value="${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT_NAME | upper)] }}"
+          if [ -z "$secret_value" ]; then
             echo "❌ Secret $secret_name not found. Please add it to GitHub secrets."
             exit 1
           fi
-
-      - name: Write private key
-        run: |
-          secret_name="$(echo ${PROJECT_NAME}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')"
           mkdir -p keys
-          printf '%b' "${{ secrets[secret_name] }}" > keys/temp_key.p8
+          echo "$secret_value" > keys/temp_key.p8
           chmod 600 keys/temp_key.p8
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.8'
-
-      - name: Install dependencies
-        run: pip install snowflake-connector-python cryptography
 
       - name: Deploy SQL to Snowflake
         env:
