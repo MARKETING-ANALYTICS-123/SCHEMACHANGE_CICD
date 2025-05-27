@@ -30,6 +30,6 @@ jobs:
 
       - name: Deploy SQL to PROD
         env:
-          CONFIG_FILE: ci_cd/prod_config.json
+          CONFIG_FILE: configs/project-a.json
         run: python deploy_sql_files.py
 
