@@ -1,14 +1,24 @@
+
 name: Deploy to PROD Snowflake
 
 on:
   push:
     branches: [PROD]
-    paths: ['dbscripts2/**']
+    paths:
+      - 'dbscripts2/**'
   workflow_dispatch:
+    inputs:
+      project_name:
+        description: 'Project name to deploy (e.g. sca, marketing, sourcing)'
+        required: true
+        default: 'SCA'
 
 jobs:
   deploy-to-prod:
     runs-on: ubuntu-latest
+
+    env:
+      PROJECT_NAME: ${{ github.event.inputs.project_name || 'sca' }}
 
     steps:
       - name: Checkout code
@@ -20,16 +30,21 @@ jobs:
           python-version: 3.8
 
       - name: Install dependencies
-        run: pip install snowflake-connector-python
+        run: pip install snowflake-connector-python cryptography
 
-      - name: Write private key to file
+      - name: Write private key dynamically
         run: |
           mkdir -p keys
-          printf '%b' "${{ secrets.PROJECT_A_PRIVATE_KEY }}" > keys/temp_key.p8
+          secret_name="${PROJECT_NAME^^}_PRIVATE_KEY"
+          private_key="${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT_NAME)] }}"
+          if [ -z "$private_key" ]; then
+            echo "❌ Secret $secret_name not found. Please add it to GitHub secrets."
+            exit 1
+          fi
+          printf '%b' "$private_key" > keys/temp_key.p8
           chmod 600 keys/temp_key.p8
 
       - name: Deploy SQL to PROD
         env:
-          CONFIG_FILE: configs/project-a.json
+          CONFIG_FILE: configs/${{ env.PROJECT_NAME }}.json
         run: python deploy_sql_files.py
-
