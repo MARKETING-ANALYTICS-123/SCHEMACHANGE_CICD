@@ -22,12 +22,14 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python
 
+      - name: Write private key to file
+        run: |
+          mkdir -p keys
+          echo "${{ secrets.PROJECT_A_PRIVATE_KEY }}" > keys/temp_key.p8
+          chmod 600 keys/temp_key.p8
+
       - name: Deploy SQL to PROD
         env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          CONFIG_FILE: ci_cd/prod_config.json
         run: python deploy_sql_files.py
+
