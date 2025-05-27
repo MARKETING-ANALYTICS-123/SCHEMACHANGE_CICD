@@ -25,7 +25,7 @@ jobs:
       - name: Write private key to file
         run: |
           mkdir -p keys
-          echo "${{ secrets.PROJECT_A_PRIVATE_KEY }}" > keys/temp_key.p8
+          printf '%b' "${{ secrets.PROJECT_A_PRIVATE_KEY }}" > keys/temp_key.p8
           chmod 600 keys/temp_key.p8
 
       - name: Deploy SQL to PROD
