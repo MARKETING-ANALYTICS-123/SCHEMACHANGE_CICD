@@ -1,5 +1,5 @@
 {
-  "project_name": "project-a",
+  "project_name": "MARKETING",
   "snowflake": {
     "account": "CAABMGX-OO80832.snowflakecomputing.com",
     "user": "ARJIT",
@@ -10,17 +10,12 @@
   "key_path": "keys/temp_key.p8",
   "folders": {
     "tables": {
-      "path": "dbscripts2/Tables",
-      "default_schema": "RPT",
-      "schema_map_file": "schema_map.json"
-    },
-    "stored_procs": {
-      "path": "dbscripts2/StoredProcs",
+      "path": "dbscripts2/sca/XFRM/tables",
       "default_schema": "XFRM"
     },
-    "tasks": {
-      "path": "projects/project-a/dbscripts/Tasks",
-      "default_schema": "TKS"
+    "stored_procs": {
+      "path": "dbscripts2/sca/RPT/StoredProcs",
+      "default_schema": "RPT"
     }
   }
 }
