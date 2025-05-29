@@ -80,21 +80,27 @@ def get_root_task(cursor, schema, child_task_name):
         if not predecessor:
             return prev
         prev = current_name
-        current_name = re.sub(r'[^\w]', '', predecessor.split('.')[-1]).upper()
+        current_name = predecessor.split('.')[-1].strip('"').upper()
         if current_name in visited:
             raise Exception("Circular task dependency detected.")
         visited.add(current_name)
     return prev
 
 def suspend_task(cursor, schema, task_name):
-    print(f"🛑 Suspending task: {task_name}")
-    cursor.execute(f"USE SCHEMA {schema};")
-    cursor.execute(f"ALTER TASK {task_name} SUSPEND;")
+    try:
+        print(f"🛑 Suspending task: {task_name}")
+        cursor.execute(f"USE SCHEMA {schema};")
+        cursor.execute(f"ALTER TASK {task_name} SUSPEND;")
+    except Exception as e:
+        print(f"⚠️ Failed to suspend task {task_name}: {e}")
 
 def resume_task(cursor, schema, task_name):
-    print(f"▶️ Resuming task: {task_name}")
-    cursor.execute(f"USE SCHEMA {schema};")
-    cursor.execute(f"ALTER TASK {task_name} RESUME;")
+    try:
+        print(f"▶️ Resuming task: {task_name}")
+        cursor.execute(f"USE SCHEMA {schema};")
+        cursor.execute(f"ALTER TASK {task_name} RESUME;")
+    except Exception as e:
+        print(f"⚠️ Failed to resume task {task_name}: {e}")
 
 # Deploy SQL from each configured folder
 for folder_type, folder_info in folders_conf.items():
@@ -121,13 +127,17 @@ for folder_type, folder_info in folders_conf.items():
             if folder_type == "tasks":
                 task_name = file_name.replace('.sql', '').upper()
                 root_task = get_root_task(cursor, schema, task_name)
+                print(f"🔍 Root task for {task_name}: {root_task or 'None (task is root)'}")
+
                 if root_task:
                     suspend_task(cursor, schema, root_task)
 
             run_sql_script(cursor, full_path, schema)
 
-            if folder_type == "tasks" and root_task:
-                resume_task(cursor, schema, root_task)
+            if folder_type == "tasks":
+                if root_task:
+                    resume_task(cursor, schema, root_task)
+                resume_task(cursor, schema, task_name)
 
             deployed_data[full_path] = {'hash': file_hash}
             print(f"✅ Deployed {file_name}")
