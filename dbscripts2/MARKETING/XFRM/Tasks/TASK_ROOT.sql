@@ -1,6 +1,0 @@
-CREATE OR REPLACE TASK TASK_ROOT
-  WAREHOUSE = COMPUTE_WH
-  SCHEDULE = 'USING CRON 0 * * * * UTC'
-AS
-  -- Root task: simple insert or refresh statement
-  CREATE OR REPLACE TABLE T1 AS SELECT 11 AS A;
