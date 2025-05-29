@@ -41,12 +41,11 @@ conn = snowflake.connector.connect(
     role=snowflake_conf['role'],
     warehouse=snowflake_conf['warehouse'],
     database=snowflake_conf['database'],
-    schema='PUBLIC'  # Will be overridden per folder during deploy
 )
 
 cursor = conn.cursor()
 
-# Load deployment history (hash tracker)
+# Load deployment history
 if os.path.exists(HASH_TRACKER_FILE):
     with open(HASH_TRACKER_FILE, 'r') as f:
         deployed_data = json.load(f)
@@ -65,42 +64,44 @@ def run_sql_script(cursor, script_path, schema):
     cursor.execute(sql)
 
 def get_root_task(cursor, schema, child_task_name):
-    cursor.execute(f"USE SCHEMA {schema}")
+    cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute("SHOW TASKS")
     tasks = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     task_map = {task['name'].upper(): task for task in [dict(zip(columns, row)) for row in tasks]}
 
-    current_name = child_task_name.split('.')[-1].upper()
+    current_name = child_task_name.upper()
     visited = set()
-    prev = None  # The last task before the root (with no predecessor)
-
+    prev = None
     while current_name in task_map:
         current_task = task_map[current_name]
         predecessor = current_task.get("predecessors")
         if not predecessor:
-            # current task has no predecessor, so prev is root to suspend/resume
             return prev
         prev = current_name
         current_name = re.sub(r'[^\w]', '', predecessor.split('.')[-1]).upper()
         if current_name in visited:
             raise Exception("Circular task dependency detected.")
         visited.add(current_name)
-
-    # If no root found, fallback to the task itself
     return prev
 
 def suspend_task(cursor, schema, task_name):
-    print(f"🛑 Suspending task: {task_name}")
-    cursor.execute(f"USE SCHEMA {schema};")
-    cursor.execute(f"ALTER TASK {task_name} SUSPEND;")
+    try:
+        print(f"🛑 Suspending task: {task_name}")
+        cursor.execute(f"USE SCHEMA {schema};")
+        cursor.execute(f'ALTER TASK "{task_name}" SUSPEND;')
+    except Exception as e:
+        print(f"⚠️ Failed to suspend task {task_name}: {e}")
 
 def resume_task(cursor, schema, task_name):
-    print(f"▶️ Resuming task: {task_name}")
-    cursor.execute(f"USE SCHEMA {schema};")
-    cursor.execute(f"ALTER TASK {task_name} RESUME;")
+    try:
+        print(f"▶️ Resuming task: {task_name}")
+        cursor.execute(f"USE SCHEMA {schema};")
+        cursor.execute(f'ALTER TASK "{task_name}" RESUME;')
+    except Exception as e:
+        print(f"⚠️ Failed to resume task {task_name}: {e}")
 
-# Deploy SQL files from each configured folder
+# Deploy SQL from each configured folder
 for folder_type, folder_info in folders_conf.items():
     folder_path = folder_info.get("path")
     schema = folder_info.get("default_schema")
@@ -115,26 +116,27 @@ for folder_type, folder_info in folders_conf.items():
 
         full_path = os.path.join(folder_path, file_name)
         file_hash = get_file_hash(full_path)
-        prev_deploy = deployed_data.get(full_path)
+        prev = deployed_data.get(full_path)
 
-        if prev_deploy and prev_deploy['hash'] == file_hash:
+        if prev and prev['hash'] == file_hash:
             print(f"⏩ Skipping {file_name} (unchanged)")
             continue
 
         try:
             root_task = None
-            task_to_manage = None
+            task_name = file_name.replace('.sql', '').upper()
 
             if folder_type == "tasks":
-                task_name = file_name.replace('.sql', '').upper()
                 root_task = get_root_task(cursor, schema, task_name)
-                task_to_manage = root_task or task_name
-                suspend_task(cursor, schema, task_to_manage)
+                if root_task:
+                    suspend_task(cursor, schema, root_task)
 
             run_sql_script(cursor, full_path, schema)
 
-            if folder_type == "tasks" and task_to_manage:
-                resume_task(cursor, schema, task_to_manage)
+            if folder_type == "tasks":
+                if root_task:
+                    resume_task(cursor, schema, root_task)
+                resume_task(cursor, schema, task_name)
 
             deployed_data[full_path] = {'hash': file_hash}
             print(f"✅ Deployed {file_name}")
@@ -145,7 +147,7 @@ for folder_type, folder_info in folders_conf.items():
             conn.close()
             exit(1)
 
-# Save updated deployment hashes
+# Save updated hash tracker
 with open(HASH_TRACKER_FILE, 'w') as f:
     json.dump(deployed_data, f, indent=2)
 
