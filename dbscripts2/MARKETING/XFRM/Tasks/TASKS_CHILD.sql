@@ -1,7 +1,0 @@
-CREATE OR REPLACE TASK "TASKS_CHILD"
-  WAREHOUSE = COMPUTE_WH
-  SCHEDULE = NULL
-  AFTER "TASK_MID"
-AS
-  -- Child task depending on mid task
-  INSERT INTO XFRM.MY_TABLE_CHILD (id, val) VALUES (3, 'child');
