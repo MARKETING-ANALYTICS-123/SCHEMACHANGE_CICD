@@ -41,6 +41,7 @@ conn = snowflake.connector.connect(
     role=snowflake_conf['role'],
     warehouse=snowflake_conf['warehouse'],
     database=snowflake_conf['database'],
+    schema='PUBLIC'  # We'll switch schema dynamically below
 )
 
 cursor = conn.cursor()
@@ -70,14 +71,14 @@ def get_root_task(cursor, schema, child_task_name):
     columns = [desc[0] for desc in cursor.description]
     task_map = {task['name'].upper(): task for task in [dict(zip(columns, row)) for row in tasks]}
 
-    current_name = child_task_name.upper()
+    current_name = child_task_name.split('.')[-1].upper()
     visited = set()
     prev = None
     while current_name in task_map:
         current_task = task_map[current_name]
         predecessor = current_task.get("predecessors")
         if not predecessor:
-            return prev
+            return prev  # reached root, return previous task in chain
         prev = current_name
         current_name = re.sub(r'[^\w]', '', predecessor.split('.')[-1]).upper()
         if current_name in visited:
@@ -86,22 +87,15 @@ def get_root_task(cursor, schema, child_task_name):
     return prev
 
 def suspend_task(cursor, schema, task_name):
-    try:
-        print(f"🛑 Suspending task: {task_name}")
-        cursor.execute(f"USE SCHEMA {schema};")
-        cursor.execute(f'ALTER TASK "{task_name}" SUSPEND;')
-    except Exception as e:
-        print(f"⚠️ Failed to suspend task {task_name}: {e}")
+    print(f"🛑 Suspending task: {task_name}")
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute(f'ALTER TASK "{task_name}" SUSPEND;')
 
 def resume_task(cursor, schema, task_name):
-    try:
-        print(f"▶️ Resuming task: {task_name}")
-        cursor.execute(f"USE SCHEMA {schema};")
-        cursor.execute(f'ALTER TASK "{task_name}" RESUME;')
-    except Exception as e:
-        print(f"⚠️ Failed to resume task {task_name}: {e}")
+    print(f"▶️ Resuming task: {task_name}")
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute(f'ALTER TASK "{task_name}" RESUME;')
 
-# Deploy SQL from each configured folder
 for folder_type, folder_info in folders_conf.items():
     folder_path = folder_info.get("path")
     schema = folder_info.get("default_schema")
@@ -123,19 +117,24 @@ for folder_type, folder_info in folders_conf.items():
             continue
 
         try:
-            root_task = None
-            task_name = file_name.replace('.sql', '').upper()
-
             if folder_type == "tasks":
+                task_name = file_name.replace('.sql', '').upper()
                 root_task = get_root_task(cursor, schema, task_name)
-                if root_task:
+
+                # Suspend root task if exists and different from current task
+                if root_task and root_task != task_name:
                     suspend_task(cursor, schema, root_task)
+                # If no root task (this task is root), suspend itself to update safely
+                elif root_task is None:
+                    suspend_task(cursor, schema, task_name)
 
             run_sql_script(cursor, full_path, schema)
 
             if folder_type == "tasks":
-                if root_task:
+                # Resume root task first (if different)
+                if root_task and root_task != task_name:
                     resume_task(cursor, schema, root_task)
+                # Then resume current task
                 resume_task(cursor, schema, task_name)
 
             deployed_data[full_path] = {'hash': file_hash}
