@@ -16,6 +16,10 @@
     "stored_procs": {
       "path": "dbscripts2/MARKETING/RPT/StoredProcs",
       "default_schema": "RPT"
+    },
+    "tasks": {
+      "path": "dbscripts2/MARKETING/XFRM/Tasks",
+      "default_schema": "XFRM"
     }
   }
 }
