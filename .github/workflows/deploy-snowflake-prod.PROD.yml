@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Ensure full history for git diff
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -25,8 +27,8 @@ jobs:
       - name: Get changed files
         id: get-changed
         run: |
-          git fetch origin ${{ github.event.before }}
-          git diff --name-only ${{ github.event.before }} ${{ github.sha }} > changed_files.txt
+          git fetch origin
+          git diff --name-only origin/PROD...HEAD -- '*.sql' > changed_files.txt
           echo "Changed files:"
           cat changed_files.txt
 
