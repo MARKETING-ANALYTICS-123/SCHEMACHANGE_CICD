@@ -64,6 +64,15 @@ def run_sql_script(cursor, script_path, schema):
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
+def quote_ident(name):
+    return f'"{name}"'
+
+def task_exists(cursor, schema, task_name):
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute("SHOW TASKS")
+    task_names = [row[0].upper() for row in cursor.fetchall()]
+    return task_name.upper() in task_names
+
 def get_root_task(cursor, schema, child_task_name):
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute("SHOW TASKS")
@@ -73,32 +82,30 @@ def get_root_task(cursor, schema, child_task_name):
 
     current_name = child_task_name.upper()
     visited = set()
-    prev = None
+
     while current_name in task_map:
-        current_task = task_map[current_name]
-        predecessor = current_task.get("predecessors")
-        if not predecessor:
-            return prev
-        prev = current_name
-        current_name = predecessor.split('.')[-1].strip('"').upper()
         if current_name in visited:
             raise Exception("Circular task dependency detected.")
         visited.add(current_name)
-    return prev
+
+        current_task = task_map[current_name]
+        predecessor = current_task.get("predecessors")
+        if not predecessor:
+            return current_name  # This is the root
+        current_name = predecessor.split('.')[-1].strip('"').upper()
+
+    return None
 
 def suspend_task(cursor, schema, task_name):
-    try:
-        print(f"🛑 Suspending task: {task_name}")
-        cursor.execute(f"USE SCHEMA {schema};")
-        cursor.execute(f"ALTER TASK {task_name} SUSPEND;")
-    except Exception as e:
-        print(f"⚠️ Failed to suspend task {task_name}: {e}")
+    print(f"🛑 Suspending task: {task_name}")
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute(f"ALTER TASK {quote_ident(task_name)} SUSPEND;")
 
 def resume_task(cursor, schema, task_name):
+    print(f"▶️ Resuming task: {task_name}")
     try:
-        print(f"▶️ Resuming task: {task_name}")
         cursor.execute(f"USE SCHEMA {schema};")
-        cursor.execute(f"ALTER TASK {task_name} RESUME;")
+        cursor.execute(f"ALTER TASK {quote_ident(task_name)} RESUME;")
     except Exception as e:
         print(f"⚠️ Failed to resume task {task_name}: {e}")
 
@@ -115,7 +122,7 @@ for folder_type, folder_info in folders_conf.items():
         if not file_name.endswith('.sql'):
             continue
 
-        full_path = os.path.join(folder_path, file_name)
+        full_path = os.path.abspath(os.path.join(folder_path, file_name))
         file_hash = get_file_hash(full_path)
         prev = deployed_data.get(full_path)
 
@@ -124,12 +131,13 @@ for folder_type, folder_info in folders_conf.items():
             continue
 
         try:
+            root_task = None
+
             if folder_type == "tasks":
                 task_name = file_name.replace('.sql', '').upper()
                 root_task = get_root_task(cursor, schema, task_name)
-                print(f"🔍 Root task for {task_name}: {root_task or 'None (task is root)'}")
-
-                if root_task:
+                print(f"🔍 Root task for {task_name}: {root_task if root_task != task_name else 'None (task is root)'}")
+                if root_task and root_task != task_name:
                     suspend_task(cursor, schema, root_task)
 
             run_sql_script(cursor, full_path, schema)
