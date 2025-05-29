@@ -4,4 +4,4 @@ CREATE OR REPLACE TASK "TASK_MID"
   AFTER "01_TASK_ROOT"
 AS
   -- Mid-level task depending on root task
-  INSERT INTO XFRM.MY_TABLE_MID (id, val) VALUES (2, 'mid');
+  INSERT INTO XFRM.MY_TABLE_MID (id, val) VALUES (1, 'mid');
