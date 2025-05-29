@@ -1,10 +1,8 @@
 import os
-import hashlib
 import json
+import subprocess
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
-
-HASH_TRACKER_FILE = '.deployed_data.json'
 
 # Load config
 config_path = os.environ.get('CONFIG_FILE')
@@ -35,38 +33,41 @@ private_key_bytes = p_key.private_bytes(
     encryption_algorithm=serialization.NoEncryption(),
 )
 
-# Connect to Snowflake
+# Connect to Snowflake (schema omitted to allow per-script control)
 conn = snowflake.connector.connect(
     user=snowflake_conf['user'],
     account=snowflake_conf['account'].split('.')[0],
     private_key=private_key_bytes,
     role=snowflake_conf['role'],
     warehouse=snowflake_conf['warehouse'],
-    database=snowflake_conf['database'],
-    schema='PUBLIC'
+    database=snowflake_conf['database']
 )
 
 cursor = conn.cursor()
 
-# Load file change history
-if os.path.exists(HASH_TRACKER_FILE):
-    with open(HASH_TRACKER_FILE, 'r') as f:
-        deployed_data = json.load(f)
-else:
-    deployed_data = {}
+# Get changed .sql files using git diff from base branch
+def get_changed_sql_files(base_branch="origin/main"):
+    result = subprocess.run(
+        ["git", "diff", "--name-only", f"{base_branch}...HEAD", "--", "*.sql"],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Failed to get changed files from git")
+    return {os.path.normpath(f.strip()) for f in result.stdout.splitlines() if f.strip()}
 
-def get_file_hash(file_path):
-    with open(file_path, 'rb') as f:
-        return hashlib.sha256(f.read()).hexdigest()
+changed_files = get_changed_sql_files()
 
+# Run SQL script in specified schema
 def run_sql_script(cursor, script_path, schema):
     with open(script_path, 'r') as f:
         sql = f.read()
     print(f"Executing in schema [{schema}]: {script_path}")
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
+    print(f"✅ Deployed {os.path.basename(script_path)}")
 
-# Deploy scripts from configured folders
+# Deploy scripts from folders defined in config
 for folder_type, folder_info in folders_conf.items():
     folder_path = folder_info.get("path")
     schema = folder_info.get("default_schema")
@@ -80,26 +81,18 @@ for folder_type, folder_info in folders_conf.items():
             continue
 
         full_path = os.path.join(folder_path, file_name)
-        file_hash = get_file_hash(full_path)
-        prev = deployed_data.get(full_path)
+        rel_path = os.path.normpath(full_path)
 
-        if prev and prev['hash'] == file_hash:
-            print(f"⏩ Skipping {file_name} (unchanged)")
-            continue
+        if rel_path not in changed_files:
+            continue  # Skip unchanged files
 
         try:
             run_sql_script(cursor, full_path, schema)
-            deployed_data[full_path] = {'hash': file_hash}
-            print(f"✅ Deployed {file_name}")
         except Exception as e:
             print(f"❌ Error deploying {file_name}: {e}")
             cursor.close()
             conn.close()
             exit(1)
-
-# Save hash tracker
-with open(HASH_TRACKER_FILE, 'w') as f:
-    json.dump(deployed_data, f, indent=2)
 
 cursor.close()
 conn.close()
