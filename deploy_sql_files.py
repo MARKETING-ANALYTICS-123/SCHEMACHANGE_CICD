@@ -1,6 +1,5 @@
 import os
 import json
-import subprocess
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
 
@@ -22,10 +21,7 @@ if not os.path.exists(key_path):
     raise FileNotFoundError(f"Private key file not found at {key_path}")
 
 with open(key_path, "rb") as key_file:
-    p_key = serialization.load_pem_private_key(
-        key_file.read(),
-        password=None,
-    )
+    p_key = serialization.load_pem_private_key(key_file.read(), password=None)
 
 private_key_bytes = p_key.private_bytes(
     encoding=serialization.Encoding.DER,
@@ -33,7 +29,7 @@ private_key_bytes = p_key.private_bytes(
     encryption_algorithm=serialization.NoEncryption(),
 )
 
-# Connect to Snowflake (schema omitted to allow per-script control)
+# Connect to Snowflake
 conn = snowflake.connector.connect(
     user=snowflake_conf['user'],
     account=snowflake_conf['account'].split('.')[0],
@@ -45,18 +41,18 @@ conn = snowflake.connector.connect(
 
 cursor = conn.cursor()
 
-# Get changed .sql files using git diff from base branch
-def get_changed_sql_files(base_branch="origin/main"):
-    result = subprocess.run(
-        ["git", "diff", "--name-only", f"{base_branch}...HEAD", "--", "*.sql"],
-        capture_output=True,
-        text=True
-    )
-    if result.returncode != 0:
-        raise RuntimeError("Failed to get changed files from git")
-    return {os.path.normpath(f.strip()) for f in result.stdout.splitlines() if f.strip()}
+# Load changed files from GitHub Action step
+changed_files_file = 'changed_files.txt'
+if not os.path.exists(changed_files_file):
+    print("⚠️ No changed_files.txt found.")
+    exit(0)
 
-changed_files = get_changed_sql_files()
+with open(changed_files_file, 'r') as f:
+    changed_files = {os.path.normpath(line.strip()) for line in f if line.strip().endswith('.sql')}
+
+if not changed_files:
+    print("ℹ️ No .sql files changed. Nothing to deploy.")
+    exit(0)
 
 # Run SQL script in specified schema
 def run_sql_script(cursor, script_path, schema):
@@ -67,7 +63,7 @@ def run_sql_script(cursor, script_path, schema):
     cursor.execute(sql)
     print(f"✅ Deployed {os.path.basename(script_path)}")
 
-# Deploy scripts from folders defined in config
+# Deploy only changed files
 for folder_type, folder_info in folders_conf.items():
     folder_path = folder_info.get("path")
     schema = folder_info.get("default_schema")
@@ -80,11 +76,9 @@ for folder_type, folder_info in folders_conf.items():
         if not file_name.endswith('.sql'):
             continue
 
-        full_path = os.path.join(folder_path, file_name)
-        rel_path = os.path.normpath(full_path)
-
-        if rel_path not in changed_files:
-            continue  # Skip unchanged files
+        full_path = os.path.normpath(os.path.join(folder_path, file_name))
+        if full_path not in changed_files:
+            continue
 
         try:
             run_sql_script(cursor, full_path, schema)
