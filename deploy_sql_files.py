@@ -1,6 +1,7 @@
 import os
 import hashlib
 import json
+import re
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
 
@@ -24,10 +25,7 @@ if not os.path.exists(key_path):
     raise FileNotFoundError(f"Private key file not found at {key_path}")
 
 with open(key_path, "rb") as key_file:
-    p_key = serialization.load_pem_private_key(
-        key_file.read(),
-        password=None,
-    )
+    p_key = serialization.load_pem_private_key(key_file.read(), password=None)
 
 private_key_bytes = p_key.private_bytes(
     encoding=serialization.Encoding.DER,
@@ -48,7 +46,7 @@ conn = snowflake.connector.connect(
 
 cursor = conn.cursor()
 
-# Load file change history
+# Load deployment history
 if os.path.exists(HASH_TRACKER_FILE):
     with open(HASH_TRACKER_FILE, 'r') as f:
         deployed_data = json.load(f)
@@ -62,11 +60,43 @@ def get_file_hash(file_path):
 def run_sql_script(cursor, script_path, schema):
     with open(script_path, 'r') as f:
         sql = f.read()
-    print(f"Executing in schema [{schema}]: {script_path}")
+    print(f"📄 Executing in schema [{schema}]: {script_path}")
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
-# Deploy scripts from configured folders
+def get_root_task(cursor, schema, child_task_name):
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute("SHOW TASKS")
+    tasks = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
+    task_map = {task['name'].upper(): task for task in [dict(zip(columns, row)) for row in tasks]}
+
+    current_name = child_task_name.upper()
+    visited = set()
+    prev = None
+    while current_name in task_map:
+        current_task = task_map[current_name]
+        predecessor = current_task.get("predecessors")
+        if not predecessor:
+            return prev
+        prev = current_name
+        current_name = re.sub(r'[^\w]', '', predecessor.split('.')[-1]).upper()
+        if current_name in visited:
+            raise Exception("Circular task dependency detected.")
+        visited.add(current_name)
+    return prev
+
+def suspend_task(cursor, schema, task_name):
+    print(f"🛑 Suspending task: {task_name}")
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute(f"ALTER TASK {task_name} SUSPEND;")
+
+def resume_task(cursor, schema, task_name):
+    print(f"▶️ Resuming task: {task_name}")
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute(f"ALTER TASK {task_name} RESUME;")
+
+# Deploy SQL from each configured folder
 for folder_type, folder_info in folders_conf.items():
     folder_path = folder_info.get("path")
     schema = folder_info.get("default_schema")
@@ -88,16 +118,27 @@ for folder_type, folder_info in folders_conf.items():
             continue
 
         try:
+            if folder_type == "tasks":
+                task_name = file_name.replace('.sql', '').upper()
+                root_task = get_root_task(cursor, schema, task_name)
+                if root_task:
+                    suspend_task(cursor, schema, root_task)
+
             run_sql_script(cursor, full_path, schema)
+
+            if folder_type == "tasks" and root_task:
+                resume_task(cursor, schema, root_task)
+
             deployed_data[full_path] = {'hash': file_hash}
             print(f"✅ Deployed {file_name}")
+
         except Exception as e:
             print(f"❌ Error deploying {file_name}: {e}")
             cursor.close()
             conn.close()
             exit(1)
 
-# Save hash tracker
+# Save updated hash tracker
 with open(HASH_TRACKER_FILE, 'w') as f:
     json.dump(deployed_data, f, indent=2)
 
