@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # full history for git diff
+          fetch-depth: 0  # Full git history needed for diff HEAD^
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -23,10 +23,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install snowflake-connector-python pyyaml
+          pip install snowflake-connector-python cryptography pyyaml
 
-      - name: Detect changed project
-        id: changes
+      - name: Detect changed files
+        id: detect
         run: |
           git fetch origin PROD
 
@@ -37,7 +37,9 @@ jobs:
           fi
 
           echo "Changed files: $CHANGED_FILES"
+          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
 
+          # Detect project from first matching changed file
           PROJECT=""
           for file in $CHANGED_FILES; do
             if [[ "$file" == dbscripts2/* ]]; then
@@ -55,15 +57,32 @@ jobs:
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
 
-      - name: Set private key secret
+      - name: Set Snowflake private key secret
         run: |
-          echo "Setting private key for project: $PROJECT"
-          echo "SNOWSQL_PRIVATE_KEY=${{ secrets[format('{0}_SNOWSQL_PRIVATE_KEY', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "Using secrets for project: $PROJECT"
+          # Export SNOWSQL_PRIVATE_KEY from GitHub Secrets dynamically
+          # Because GitHub Actions does not support dynamic secret names directly in expressions,
+          # we use a workaround here:
+          # (In YAML you can't do env: SNOWSQL_PRIVATE_KEY: ${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT)] }})
+          # So instead do this shell logic:
+
+          if [ "$PROJECT" == "MARKETING" ]; then
+            echo "SNOWSQL_PRIVATE_KEY=${{ secrets.MARKETING_PRIVATE_KEY }}" >> $GITHUB_ENV
+          elif [ "$PROJECT" == "PROJECTA" ]; then
+            echo "SNOWSQL_PRIVATE_KEY=${{ secrets.PROJECTA_PRIVATE_KEY }}" >> $GITHUB_ENV
+          else
+            echo "No private key secret defined for project $PROJECT"
+            exit 1
+          fi
 
       - name: Run deployment script
         env:
           PROJECT: ${{ env.PROJECT }}
-          SNOWSQL_PRIVATE_KEY: ${{ secrets[format('{0}_SNOWSQL_PRIVATE_KEY', env.PROJECT)] }}
+          SNOWSQL_PRIVATE_KEY: ${{ env.SNOWSQL_PRIVATE_KEY }}
         run: |
           echo "Running deployment for project: $PROJECT"
-          python deploy_sql_files.py --project "$PROJECT"
+          if [ ! -f deploy_sql_files.py ]; then
+            echo "Error: deploy_sql_files.py not found!"
+            exit 1
+          fi
+          python deploy_sql_files.py --project "$PROJECT" || (echo "Deployment script failed!" && exit 1)
