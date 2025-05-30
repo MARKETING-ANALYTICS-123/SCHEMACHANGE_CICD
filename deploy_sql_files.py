@@ -1,108 +1,86 @@
 import os
-import re
-import yaml
-import snowflake.connector
-from collections import defaultdict
+import argparse
+import subprocess
+import json
+import glob
+import sys
+from utils.snowflake import SnowflakeConnector
 
-def parse_task_name(sql_text):
-    """Extract task name from SQL (CREATE OR REPLACE TASK <name>)"""
-    match = re.search(r"CREATE\s+OR\s+REPLACE\s+TASK\s+([^\s]+)", sql_text, re.IGNORECASE)
-    return match.group(1).strip() if match else None
+def load_config(project):
+    with open(f"dbscripts2/{project}/config.json") as f:
+        return json.load(f)
 
-def get_task_dependencies(sql_text):
-    """Extract tasks that the current task depends on (AFTER clause)"""
-    return re.findall(r"AFTER\s+([a-zA-Z0-9_\.]+)", sql_text, re.IGNORECASE)
+def find_changed_sql_files(project):
+    result = subprocess.run(
+        ['git', 'diff', '--name-only', 'HEAD^', 'HEAD'],
+        stdout=subprocess.PIPE,
+        check=True
+    )
+    changed_files = result.stdout.decode().splitlines()
+    return [
+        f for f in changed_files
+        if f.startswith(f"dbscripts2/{project}/") and f.endswith(".sql")
+    ]
 
-def load_project_config(config_path):
-    with open(config_path, 'r') as file:
-        return yaml.safe_load(file)
+def suspend_tasks(conn, task_names):
+    for task in task_names:
+        print(f"Suspending task: {task}")
+        conn.execute(f"ALTER TASK IF EXISTS {task} SUSPEND")
 
-def read_sql_file(file_path):
-    with open(file_path, 'r') as f:
-        return f.read()
+def resume_tasks(conn, task_names):
+    for task in task_names:
+        print(f"Resuming task: {task}")
+        conn.execute(f"ALTER TASK IF EXISTS {task} RESUME")
 
-def topological_sort(tasks):
-    visited = {}
-    order = []
+def deploy_sql_files(conn, sql_files):
+    for file_path in sorted(sql_files):
+        print(f"Deploying: {file_path}")
+        with open(file_path) as f:
+            sql = f.read()
+            conn.execute(sql)
 
-    def visit(task):
-        if task in visited:
-            if visited[task] == 1:
-                raise ValueError("Cycle detected in task dependencies")
-            return
-        visited[task] = 1
-        for dep in tasks[task]['depends_on']:
-            visit(dep)
-        visited[task] = 2
-        order.append(task)
+def collect_task_names(sql_files):
+    task_names = []
+    for path in sql_files:
+        with open(path) as f:
+            lines = f.readlines()
+            for line in lines:
+                if "create or replace task" in line.lower():
+                    parts = line.strip().split()
+                    if len(parts) >= 5:
+                        task_names.append(parts[4])
+    return task_names
 
-    for task in tasks:
-        visit(task)
-    return order
-
-def deploy_sql_scripts(project_config_path, changed_files):
-    config = load_project_config(project_config_path)
-
-    conn = snowflake.connector.connect(
-        user=config["user"],
-        account=config["account"],
-        private_key=config["private_key"],
-        warehouse=config["warehouse"],
-        database=config["database"],
-        schema=config["schema"],
-        role=config["role"]
+def main(project):
+    config = load_config(project)
+    conn = SnowflakeConnector(
+        account=os.environ["SNOWSQL_ACCOUNT"],
+        user=os.environ["SNOWSQL_USER"],
+        role=os.environ["SNOWSQL_ROLE"],
+        warehouse=os.environ["SNOWSQL_WAREHOUSE"],
+        private_key=os.environ["SNOWSQL_PRIVATE_KEY"]
     )
 
-    cursor = conn.cursor()
+    changed_files = find_changed_sql_files(project)
+    if not changed_files:
+        print("No SQL files changed.")
+        return
 
-    try:
-        # Parse task scripts to gather task graph
-        task_graph = {}
-        task_file_map = {}
+    task_files = [f for f in changed_files if "tasks" in f.lower()]
+    task_names = collect_task_names(task_files)
 
-        for file_path in changed_files:
-            if '/tasks/' in file_path.lower() and file_path.endswith('.sql'):
-                sql_text = read_sql_file(file_path)
-                task_name = parse_task_name(sql_text)
-                if task_name:
-                    depends_on = get_task_dependencies(sql_text)
-                    task_graph[task_name] = {"depends_on": depends_on}
-                    task_file_map[task_name] = file_path
+    if task_names:
+        suspend_tasks(conn, task_names)
 
-        sorted_tasks = topological_sort(task_graph)
+    deploy_sql_files(conn, changed_files)
 
-        # Find root tasks to suspend (no parent tasks)
-        root_tasks = [t for t, v in task_graph.items() if not v["depends_on"]]
-        root_status = {}
+    if task_names:
+        resume_tasks(conn, task_names)
 
-        for task in root_tasks:
-            cursor.execute(f"SHOW TASKS LIKE '{task}'")
-            result = cursor.fetchone()
-            if result and result[6] == "started":
-                cursor.execute(f"ALTER TASK {task} SUSPEND")
-                root_status[task] = "started"
-            else:
-                root_status[task] = "suspended"
+    print("Deployment complete.")
 
-        # Deploy tasks in topological order
-        for task in sorted_tasks:
-            file_path = task_file_map[task]
-            sql = read_sql_file(file_path)
-            print(f"Deploying task: {task}")
-            cursor.execute(sql)
-
-        # Resume only previously started root tasks
-        for task in root_tasks:
-            if root_status.get(task) == "started":
-                cursor.execute(f"ALTER TASK {task} RESUME")
-
-        # Deploy other SQLs (e.g., tables, views, procedures)
-        for file_path in changed_files:
-            if not '/tasks/' in file_path.lower() and file_path.endswith('.sql'):
-                sql = read_sql_file(file_path)
-                print(f"Deploying object from: {file_path}")
-                cursor.execute(sql)
-
-    finally:
-        cursor.close()
-        conn.close()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--project", required=True)
+    args = parser.parse_args()
+    main(args.project)
