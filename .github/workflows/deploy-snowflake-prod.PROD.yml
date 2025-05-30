@@ -3,7 +3,7 @@ name: Deploy to PROD Snowflake
 on:
   push:
     branches: [PROD]
-    paths: ['dbscripts2/**']
+    paths: ['dbscripts2/**.sql']
   workflow_dispatch:
 
 jobs:
@@ -14,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Ensure full history for git diff
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -24,40 +24,38 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python cryptography
 
-      - name: Get changed files
-        id: get-changed
+      - name: Get changed files and extract project
+        id: detect
         run: |
           git fetch origin
           git diff --name-only origin/PROD...HEAD -- '*.sql' > changed_files.txt
+
           echo "Changed files:"
           cat changed_files.txt
 
-      - name: Extract project name from changed files
-        id: extract-project
-        run: |
           project=$(awk -F'/' '/^dbscripts2\// { print $2; exit }' changed_files.txt)
           if [ -z "$project" ]; then
-            echo "❌ Could not detect project name from changed files."
+            echo "❌ Could not detect project name."
             exit 1
           fi
-          project_lower=$(echo "$project" | tr '[:upper:]' '[:lower:]')
-          echo "PROJECT_NAME=$project_lower" >> $GITHUB_ENV
+
+          echo "Detected project: $project"
+          echo "PROJECT_NAME=$(echo $project | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
           echo "SECRET_NAME=$(echo ${project}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')" >> $GITHUB_ENV
-          echo "✅ Detected project: $project_lower"
 
       - name: Write private key to file
         run: |
           echo "🔐 Using secret: $SECRET_NAME"
           secret_value="${{ secrets[env.SECRET_NAME] }}"
           if [ -z "$secret_value" ]; then
-            echo "❌ Secret $SECRET_NAME not found. Please add it to GitHub secrets."
+            echo "❌ Secret $SECRET_NAME not found."
             exit 1
           fi
           mkdir -p keys
           echo "$secret_value" > keys/temp_key.p8
           chmod 600 keys/temp_key.p8
 
-      - name: Deploy SQL to Snowflake
+      - name: Deploy changed SQL files to Snowflake
         env:
           CONFIG_FILE: configs/${{ env.PROJECT_NAME }}.json
         run: python deploy_sql_files.py
