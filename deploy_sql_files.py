@@ -1,54 +1,51 @@
 import os
-import sys
+import json
 import argparse
+import snowflake.connector
 
 def main():
-    parser = argparse.ArgumentParser(description="Deploy project scripts to Snowflake")
-    parser.add_argument('--project', required=True, help='Project name to deploy')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--project', required=True, help='Project name')
     args = parser.parse_args()
 
     project = args.project
-    print(f"Starting deployment for project: {project}")
 
-    # Print environment info (except private key)
-    print(f"SNOWSQL_ACCOUNT: {os.getenv('SNOWSQL_ACCOUNT')}")
-    print(f"SNOWSQL_USER: {os.getenv('SNOWSQL_USER')}")
-    print(f"SNOWSQL_ROLE: {os.getenv('SNOWSQL_ROLE')}")
-    print(f"SNOWSQL_WAREHOUSE: {os.getenv('SNOWSQL_WAREHOUSE')}")
+    # Load config JSON for the project
+    config_path = f'configs/{project}.json'
+    with open(config_path) as f:
+        config = json.load(f)
 
-    # Private key is sensitive - do NOT print
+    snowflake_conf = config['snowflake']
+    key_path = config['key_path']
 
-    try:
-        # Here place your actual Snowflake deployment logic
-        # Example: connect to Snowflake using snowflake-connector-python
-        import snowflake.connector
+    # Read the private key file content (assuming it's in repo)
+    with open(key_path, 'rb') as key_file:
+        private_key = key_file.read()
 
-        ctx = snowflake.connector.connect(
-            user=os.getenv('SNOWSQL_USER'),
-            account=os.getenv('SNOWSQL_ACCOUNT'),
-            private_key=os.getenv('SNOWSQL_PRIVATE_KEY'),
-            role=os.getenv('SNOWSQL_ROLE'),
-            warehouse=os.getenv('SNOWSQL_WAREHOUSE'),
-            # Add more params as needed
-        )
-        cs = ctx.cursor()
-        try:
-            # Example query to test connection
-            cs.execute("SELECT current_version()")
-            one_row = cs.fetchone()
-            print(f"Snowflake connection success, version: {one_row[0]}")
+    # Or if you want to use the private key from environment variable (base64 encoded for example)
+    # private_key_env = os.getenv('SNOWSQL_PRIVATE_KEY')
+    # You can decode it here if needed
 
-            # TODO: Add your deployment SQL execution logic here
+    # Connect to Snowflake using key pair auth
+    ctx = snowflake.connector.connect(
+        user=snowflake_conf['user'],
+        account=snowflake_conf['account'],
+        role=snowflake_conf['role'],
+        warehouse=snowflake_conf['warehouse'],
+        database=snowflake_conf.get('database'),
+        private_key=private_key,
+        authenticator='snowflake'  # or any other as required
+    )
 
-        finally:
-            cs.close()
-            ctx.close()
+    print(f"Connected to Snowflake account {snowflake_conf['account']} as user {snowflake_conf['user']}")
 
-        print("Deployment completed successfully.")
+    # Your deployment logic here, example:
+    # - Scan folders in config['folders']
+    # - Read SQL files
+    # - Execute them via ctx.cursor()
 
-    except Exception as e:
-        print(f"Error during deployment: {e}")
-        sys.exit(1)
+    # Close connection
+    ctx.close()
 
 if __name__ == "__main__":
     main()
