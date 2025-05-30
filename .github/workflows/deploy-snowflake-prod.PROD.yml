@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Important to access full git history including HEAD^
+          fetch-depth: 0  # full git history needed for HEAD^
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -53,17 +53,14 @@ jobs:
           fi
 
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
-          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
-
-      - name: Set project-specific secrets
-        run: |
-          echo "Using secrets for project: $PROJECT"
-          echo "SNOWSQL_PRIVATE_KEY=${{ secrets[env.PROJECT + '_SNOWSQL_PRIVATE_KEY'] }}" >> $GITHUB_ENV
-          echo "SNOWSQL_ACCOUNT=${{ secrets[env.PROJECT + '_SNOWSQL_ACCOUNT'] }}" >> $GITHUB_ENV
-          echo "SNOWSQL_USER=${{ secrets[env.PROJECT + '_SNOWSQL_USER'] }}" >> $GITHUB_ENV
-          echo "SNOWSQL_ROLE=${{ secrets[env.PROJECT + '_SNOWSQL_ROLE'] }}" >> $GITHUB_ENV
-          echo "SNOWSQL_WAREHOUSE=${{ secrets[env.PROJECT + '_SNOWSQL_WAREHOUSE'] }}" >> $GITHUB_ENV
 
       - name: Run deployment script
+        env:
+          PROJECT: ${{ steps.changes.outputs.project }}
+          SNOWSQL_PRIVATE_KEY: ${{ secrets[format('{0}_SNOWSQL_PRIVATE_KEY', steps.changes.outputs.project)] }}
+          SNOWSQL_ACCOUNT: ${{ secrets[format('{0}_SNOWSQL_ACCOUNT', steps.changes.outputs.project)] }}
+          SNOWSQL_USER: ${{ secrets[format('{0}_SNOWSQL_USER', steps.changes.outputs.project)] }}
+          SNOWSQL_ROLE: ${{ secrets[format('{0}_SNOWSQL_ROLE', steps.changes.outputs.project)] }}
+          SNOWSQL_WAREHOUSE: ${{ secrets[format('{0}_SNOWSQL_WAREHOUSE', steps.changes.outputs.project)] }}
         run: |
           python deploy.py --project $PROJECT
