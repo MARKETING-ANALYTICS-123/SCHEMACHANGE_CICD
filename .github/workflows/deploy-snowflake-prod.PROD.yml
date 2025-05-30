@@ -78,4 +78,4 @@ jobs:
             echo "Error: deploy.py not found!"
             exit 1
           fi
-          python deploy.py --project "$PROJECT" || (echo "Deployment script failed!" && exit 1)
+          python deploy_sql_files.py --project "$PROJECT" || (echo "Deployment script failed!" && exit 1)
