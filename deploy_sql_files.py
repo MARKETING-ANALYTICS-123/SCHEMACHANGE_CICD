@@ -1,94 +1,108 @@
 import os
-import hashlib
-import json
-import subprocess
+import re
+import yaml
 import snowflake.connector
-from cryptography.hazmat.primitives import serialization
+from collections import defaultdict
 
-# Load config
-config_path = os.environ.get('CONFIG_FILE')
-if not config_path or not os.path.exists(config_path):
-    raise FileNotFoundError(f"Config file not found at {config_path}")
+def parse_task_name(sql_text):
+    """Extract task name from SQL (CREATE OR REPLACE TASK <name>)"""
+    match = re.search(r"CREATE\s+OR\s+REPLACE\s+TASK\s+([^\s]+)", sql_text, re.IGNORECASE)
+    return match.group(1).strip() if match else None
 
-with open(config_path, 'r') as f:
-    config = json.load(f)
+def get_task_dependencies(sql_text):
+    """Extract tasks that the current task depends on (AFTER clause)"""
+    return re.findall(r"AFTER\s+([a-zA-Z0-9_\.]+)", sql_text, re.IGNORECASE)
 
-project_name = config.get("project_name")
-snowflake_conf = config.get("snowflake")
-folders_conf = config.get("folders")
+def load_project_config(config_path):
+    with open(config_path, 'r') as file:
+        return yaml.safe_load(file)
 
-# Load private key
-key_path = config.get("key_path")
-if not os.path.exists(key_path):
-    raise FileNotFoundError(f"Private key file not found at {key_path}")
+def read_sql_file(file_path):
+    with open(file_path, 'r') as f:
+        return f.read()
 
-with open(key_path, "rb") as key_file:
-    p_key = serialization.load_pem_private_key(
-        key_file.read(),
-        password=None,
+def topological_sort(tasks):
+    visited = {}
+    order = []
+
+    def visit(task):
+        if task in visited:
+            if visited[task] == 1:
+                raise ValueError("Cycle detected in task dependencies")
+            return
+        visited[task] = 1
+        for dep in tasks[task]['depends_on']:
+            visit(dep)
+        visited[task] = 2
+        order.append(task)
+
+    for task in tasks:
+        visit(task)
+    return order
+
+def deploy_sql_scripts(project_config_path, changed_files):
+    config = load_project_config(project_config_path)
+
+    conn = snowflake.connector.connect(
+        user=config["user"],
+        account=config["account"],
+        private_key=config["private_key"],
+        warehouse=config["warehouse"],
+        database=config["database"],
+        schema=config["schema"],
+        role=config["role"]
     )
 
-private_key_bytes = p_key.private_bytes(
-    encoding=serialization.Encoding.DER,
-    format=serialization.PrivateFormat.PKCS8,
-    encryption_algorithm=serialization.NoEncryption(),
-)
+    cursor = conn.cursor()
 
-# Connect to Snowflake
-conn = snowflake.connector.connect(
-    user=snowflake_conf['user'],
-    account=snowflake_conf['account'].split('.')[0],
-    private_key=private_key_bytes,
-    role=snowflake_conf['role'],
-    warehouse=snowflake_conf['warehouse'],
-    database=snowflake_conf['database'],
-)
-cursor = conn.cursor()
-
-# Get changed files from Git
-def get_changed_sql_files():
     try:
-        output = subprocess.check_output([
-            "git", "diff", "--name-only", os.environ['GITHUB_BEFORE'], os.environ['GITHUB_SHA'], "--", "*.sql"
-        ])
-        return [line.strip() for line in output.decode().splitlines() if line.strip()]
-    except Exception:
-        raise RuntimeError("Failed to get changed files from git")
+        # Parse task scripts to gather task graph
+        task_graph = {}
+        task_file_map = {}
 
-def run_sql_script(cursor, script_path, schema):
-    with open(script_path, 'r') as f:
-        sql = f.read()
-    print(f"Executing in schema [{schema}]: {script_path}")
-    cursor.execute(f"USE SCHEMA {schema};")
-    cursor.execute(sql)
+        for file_path in changed_files:
+            if '/tasks/' in file_path.lower() and file_path.endswith('.sql'):
+                sql_text = read_sql_file(file_path)
+                task_name = parse_task_name(sql_text)
+                if task_name:
+                    depends_on = get_task_dependencies(sql_text)
+                    task_graph[task_name] = {"depends_on": depends_on}
+                    task_file_map[task_name] = file_path
 
-changed_files = get_changed_sql_files()
+        sorted_tasks = topological_sort(task_graph)
 
-for folder_type, folder_info in folders_conf.items():
-    folder_path = folder_info.get("path")
-    schema = folder_info.get("default_schema")
+        # Find root tasks to suspend (no parent tasks)
+        root_tasks = [t for t, v in task_graph.items() if not v["depends_on"]]
+        root_status = {}
 
-    if not os.path.exists(folder_path):
-        print(f"⚠️ Folder {folder_path} does not exist, skipping.")
-        continue
+        for task in root_tasks:
+            cursor.execute(f"SHOW TASKS LIKE '{task}'")
+            result = cursor.fetchone()
+            if result and result[6] == "started":
+                cursor.execute(f"ALTER TASK {task} SUSPEND")
+                root_status[task] = "started"
+            else:
+                root_status[task] = "suspended"
 
-    for file_name in sorted(os.listdir(folder_path)):
-        if not file_name.endswith('.sql'):
-            continue
+        # Deploy tasks in topological order
+        for task in sorted_tasks:
+            file_path = task_file_map[task]
+            sql = read_sql_file(file_path)
+            print(f"Deploying task: {task}")
+            cursor.execute(sql)
 
-        full_path = os.path.join(folder_path, file_name)
-        if full_path not in changed_files and not any(full_path.endswith(f) for f in changed_files):
-            continue
+        # Resume only previously started root tasks
+        for task in root_tasks:
+            if root_status.get(task) == "started":
+                cursor.execute(f"ALTER TASK {task} RESUME")
 
-        try:
-            run_sql_script(cursor, full_path, schema)
-            print(f"✅ Deployed {file_name}")
-        except Exception as e:
-            print(f"❌ Error deploying {file_name}: {e}")
-            cursor.close()
-            conn.close()
-            exit(1)
+        # Deploy other SQLs (e.g., tables, views, procedures)
+        for file_path in changed_files:
+            if not '/tasks/' in file_path.lower() and file_path.endswith('.sql'):
+                sql = read_sql_file(file_path)
+                print(f"Deploying object from: {file_path}")
+                cursor.execute(sql)
 
-cursor.close()
-conn.close()
-print("🎉 Deployment complete.")
+    finally:
+        cursor.close()
+        conn.close()
