@@ -74,8 +74,8 @@ jobs:
           SNOWSQL_WAREHOUSE: ${{ secrets[format('{0}_SNOWSQL_WAREHOUSE', env.PROJECT)] }}
         run: |
           echo "Running deployment for project: $PROJECT"
-          if [ ! -f deploy.py ]; then
-            echo "Error: deploy.py not found!"
+          if [ ! -f deploy_sql_files.py ]; then
+            echo "Error: deploy_sql_files.py not found!"
             exit 1
           fi
           python deploy_sql_files.py --project "$PROJECT" || (echo "Deployment script failed!" && exit 1)
