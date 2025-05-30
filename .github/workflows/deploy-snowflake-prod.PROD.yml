@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # full git history needed for HEAD^
+          fetch-depth: 0  # Important for full git history
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -53,14 +53,29 @@ jobs:
           fi
 
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+
+      - name: Set project-specific secrets
+        run: |
+          echo "Using secrets for project: $PROJECT"
+          echo "SNOWSQL_PRIVATE_KEY=${{ secrets[format('{0}_SNOWSQL_PRIVATE_KEY', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_ACCOUNT=${{ secrets[format('{0}_SNOWSQL_ACCOUNT', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_USER=${{ secrets[format('{0}_SNOWSQL_USER', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_ROLE=${{ secrets[format('{0}_SNOWSQL_ROLE', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_WAREHOUSE=${{ secrets[format('{0}_SNOWSQL_WAREHOUSE', env.PROJECT)] }}" >> $GITHUB_ENV
 
       - name: Run deployment script
         env:
-          PROJECT: ${{ steps.changes.outputs.project }}
-          SNOWSQL_PRIVATE_KEY: ${{ secrets[format('{0}_SNOWSQL_PRIVATE_KEY', steps.changes.outputs.project)] }}
-          SNOWSQL_ACCOUNT: ${{ secrets[format('{0}_SNOWSQL_ACCOUNT', steps.changes.outputs.project)] }}
-          SNOWSQL_USER: ${{ secrets[format('{0}_SNOWSQL_USER', steps.changes.outputs.project)] }}
-          SNOWSQL_ROLE: ${{ secrets[format('{0}_SNOWSQL_ROLE', steps.changes.outputs.project)] }}
-          SNOWSQL_WAREHOUSE: ${{ secrets[format('{0}_SNOWSQL_WAREHOUSE', steps.changes.outputs.project)] }}
+          PROJECT: ${{ env.PROJECT }}
+          SNOWSQL_PRIVATE_KEY: ${{ secrets[format('{0}_SNOWSQL_PRIVATE_KEY', env.PROJECT)] }}
+          SNOWSQL_ACCOUNT: ${{ secrets[format('{0}_SNOWSQL_ACCOUNT', env.PROJECT)] }}
+          SNOWSQL_USER: ${{ secrets[format('{0}_SNOWSQL_USER', env.PROJECT)] }}
+          SNOWSQL_ROLE: ${{ secrets[format('{0}_SNOWSQL_ROLE', env.PROJECT)] }}
+          SNOWSQL_WAREHOUSE: ${{ secrets[format('{0}_SNOWSQL_WAREHOUSE', env.PROJECT)] }}
         run: |
-          python deploy.py --project $PROJECT
+          echo "Running deployment for project: $PROJECT"
+          if [ ! -f deploy.py ]; then
+            echo "Error: deploy.py not found!"
+            exit 1
+          fi
+          python deploy.py --project "$PROJECT" || (echo "Deployment script failed!" && exit 1)
