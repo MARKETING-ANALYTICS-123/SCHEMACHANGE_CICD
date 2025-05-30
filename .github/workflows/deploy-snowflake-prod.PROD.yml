@@ -13,8 +13,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -28,7 +26,7 @@ jobs:
         id: detect
         run: |
           git fetch origin
-          git diff --name-only origin/PROD...HEAD -- '*.sql' > changed_files.txt
+          git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" -- '*.sql' > changed_files.txt
 
           echo "Changed files:"
           cat changed_files.txt
@@ -39,23 +37,28 @@ jobs:
             exit 1
           fi
 
-          echo "Detected project: $project"
           echo "PROJECT_NAME=$(echo $project | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
           echo "SECRET_NAME=$(echo ${project}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')" >> $GITHUB_ENV
+          echo "✅ Detected project: $project"
+
+          echo "GITHUB_BEFORE=${{ github.event.before }}" >> $GITHUB_ENV
+          echo "GITHUB_SHA=${{ github.sha }}" >> $GITHUB_ENV
 
       - name: Write private key to file
         run: |
           echo "🔐 Using secret: $SECRET_NAME"
           secret_value="${{ secrets[env.SECRET_NAME] }}"
           if [ -z "$secret_value" ]; then
-            echo "❌ Secret $SECRET_NAME not found."
+            echo "❌ Secret $SECRET_NAME not found. Please add it to GitHub secrets."
             exit 1
           fi
           mkdir -p keys
           echo "$secret_value" > keys/temp_key.p8
           chmod 600 keys/temp_key.p8
 
-      - name: Deploy changed SQL files to Snowflake
+      - name: Deploy SQL to Snowflake
         env:
           CONFIG_FILE: configs/${{ env.PROJECT_NAME }}.json
+          GITHUB_BEFORE: ${{ github.event.before }}
+          GITHUB_SHA: ${{ github.sha }}
         run: python deploy_sql_files.py
