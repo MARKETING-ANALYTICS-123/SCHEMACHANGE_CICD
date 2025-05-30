@@ -1,64 +1,63 @@
-name: Deploy to PROD Snowflake
+name: Deploy to PROD
 
 on:
   push:
-    branches: [PROD]
-    paths: ['dbscripts2/**.sql']
-  workflow_dispatch:
+    branches:
+      - PROD
 
 jobs:
-  deploy-to-prod:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.8
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install snowflake-connector-python cryptography
-
-      - name: Get changed files and extract project
-        id: detect
         run: |
-          git fetch origin
-          git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" -- '*.sql' > changed_files.txt
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-          echo "Changed files:"
-          cat changed_files.txt
+      - name: Detect changed project
+        id: changes
+        run: |
+          git fetch origin PROD
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          echo "Changed files: $CHANGED_FILES"
 
-          project=$(awk -F'/' '/^dbscripts2\// { print $2; exit }' changed_files.txt)
-          if [ -z "$project" ]; then
-            echo "❌ Could not detect project name."
+          PROJECT=""
+          for file in $CHANGED_FILES; do
+            if [[ "$file" == dbscripts2/* ]]; then
+              PROJECT=$(echo "$file" | cut -d'/' -f2)
+              echo "Detected project: $PROJECT"
+              break
+            fi
+          done
+
+          if [[ -z "$PROJECT" ]]; then
+            echo "No project changes detected."
             exit 1
           fi
 
-          echo "PROJECT_NAME=$(echo $project | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "SECRET_NAME=$(echo ${project}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')" >> $GITHUB_ENV
-          echo "✅ Detected project: $project"
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
 
-          echo "GITHUB_BEFORE=${{ github.event.before }}" >> $GITHUB_ENV
-          echo "GITHUB_SHA=${{ github.sha }}" >> $GITHUB_ENV
-
-      - name: Write private key to file
+      - name: Set project-specific secrets
+        id: secrets
         run: |
-          echo "🔐 Using secret: $SECRET_NAME"
-          secret_value="${{ secrets[env.SECRET_NAME] }}"
-          if [ -z "$secret_value" ]; then
-            echo "❌ Secret $SECRET_NAME not found. Please add it to GitHub secrets."
-            exit 1
-          fi
-          mkdir -p keys
-          echo "$secret_value" > keys/temp_key.p8
-          chmod 600 keys/temp_key.p8
+          PROJECT="${{ steps.changes.outputs.project }}"
+          echo "Using secrets for project: $PROJECT"
 
-      - name: Deploy SQL to Snowflake
-        env:
-          CONFIG_FILE: configs/${{ env.PROJECT_NAME }}.json
-          GITHUB_BEFORE: ${{ github.event.before }}
-          GITHUB_SHA: ${{ github.sha }}
-        run: python deploy_sql_files.py
+          echo "SNOWSQL_PRIVATE_KEY=${{ secrets[format('{0}_SNOWSQL_PRIVATE_KEY', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_ACCOUNT=${{ secrets[format('{0}_SNOWSQL_ACCOUNT', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_USER=${{ secrets[format('{0}_SNOWSQL_USER', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_ROLE=${{ secrets[format('{0}_SNOWSQL_ROLE', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_WAREHOUSE=${{ secrets[format('{0}_SNOWSQL_WAREHOUSE', env.PROJECT)] }}" >> $GITHUB_ENV
+
+      - name: Run deployment script
+        run: |
+          python deploy.py --project ${{ steps.changes.outputs.project }}
