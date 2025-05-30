@@ -1,86 +1,69 @@
-import os
 import argparse
-import subprocess
-import json
-import glob
-import sys
-from utils.snowflake import SnowflakeConnector
+import os
+import snowflake.connector
 
-def load_config(project):
-    with open(f"dbscripts2/{project}/config.json") as f:
-        return json.load(f)
+def deploy_sql_file(cursor, filepath):
+    print(f"Deploying {filepath} ...")
+    with open(filepath, 'r') as file:
+        sql = file.read()
+    try:
+        cursor.execute(sql)
+        print(f"Successfully deployed {filepath}")
+    except Exception as e:
+        print(f"Error deploying {filepath}: {e}")
+        raise
 
-def find_changed_sql_files(project):
-    result = subprocess.run(
-        ['git', 'diff', '--name-only', 'HEAD^', 'HEAD'],
-        stdout=subprocess.PIPE,
-        check=True
+def deploy_project(project_name, conn_params):
+    base_path = f"dbscripts2/{project_name}"
+    print(f"Starting deployment for project: {project_name}")
+    
+    # Connect to Snowflake
+    ctx = snowflake.connector.connect(
+        user=conn_params['user'],
+        account=conn_params['account'],
+        private_key=conn_params['private_key'],
+        role=conn_params['role'],
+        warehouse=conn_params['warehouse'],
+        database=conn_params.get('database'),
+        schema=conn_params.get('schema'),
     )
-    changed_files = result.stdout.decode().splitlines()
-    return [
-        f for f in changed_files
-        if f.startswith(f"dbscripts2/{project}/") and f.endswith(".sql")
-    ]
+    cs = ctx.cursor()
+    
+    try:
+        for root, dirs, files in os.walk(base_path):
+            for file in files:
+                if file.endswith('.sql'):
+                    full_path = os.path.join(root, file)
+                    deploy_sql_file(cs, full_path)
+    finally:
+        cs.close()
+        ctx.close()
+    print(f"Deployment completed for project: {project_name}")
 
-def suspend_tasks(conn, task_names):
-    for task in task_names:
-        print(f"Suspending task: {task}")
-        conn.execute(f"ALTER TASK IF EXISTS {task} SUSPEND")
+def main():
+    parser = argparse.ArgumentParser(description="Deploy Snowflake SQL scripts for a project")
+    parser.add_argument("--project", required=True, help="Project name to deploy")
+    args = parser.parse_args()
 
-def resume_tasks(conn, task_names):
-    for task in task_names:
-        print(f"Resuming task: {task}")
-        conn.execute(f"ALTER TASK IF EXISTS {task} RESUME")
+    # Read connection params from env variables set in the GitHub Action
+    conn_params = {
+        'user': os.getenv('SNOWSQL_USER'),
+        'account': os.getenv('SNOWSQL_ACCOUNT'),
+        'private_key': os.getenv('SNOWSQL_PRIVATE_KEY'),
+        'role': os.getenv('SNOWSQL_ROLE'),
+        'warehouse': os.getenv('SNOWSQL_WAREHOUSE'),
+        # Optional if you want to specify default DB/schema
+        'database': os.getenv('SNOWSQL_DATABASE'),
+        'schema': os.getenv('SNOWSQL_SCHEMA'),
+    }
 
-def deploy_sql_files(conn, sql_files):
-    for file_path in sorted(sql_files):
-        print(f"Deploying: {file_path}")
-        with open(file_path) as f:
-            sql = f.read()
-            conn.execute(sql)
+    # Validate connection params
+    missing_params = [k for k,v in conn_params.items() if v is None and k in ['user', 'account', 'private_key', 'role', 'warehouse']]
+    if missing_params:
+        print(f"Missing Snowflake connection parameters: {missing_params}")
+        exit(1)
 
-def collect_task_names(sql_files):
-    task_names = []
-    for path in sql_files:
-        with open(path) as f:
-            lines = f.readlines()
-            for line in lines:
-                if "create or replace task" in line.lower():
-                    parts = line.strip().split()
-                    if len(parts) >= 5:
-                        task_names.append(parts[4])
-    return task_names
-
-def main(project):
-    config = load_config(project)
-    conn = SnowflakeConnector(
-        account=os.environ["SNOWSQL_ACCOUNT"],
-        user=os.environ["SNOWSQL_USER"],
-        role=os.environ["SNOWSQL_ROLE"],
-        warehouse=os.environ["SNOWSQL_WAREHOUSE"],
-        private_key=os.environ["SNOWSQL_PRIVATE_KEY"]
-    )
-
-    changed_files = find_changed_sql_files(project)
-    if not changed_files:
-        print("No SQL files changed.")
-        return
-
-    task_files = [f for f in changed_files if "tasks" in f.lower()]
-    task_names = collect_task_names(task_files)
-
-    if task_names:
-        suspend_tasks(conn, task_names)
-
-    deploy_sql_files(conn, changed_files)
-
-    if task_names:
-        resume_tasks(conn, task_names)
-
-    print("Deployment complete.")
+    deploy_project(args.project, conn_params)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--project", required=True)
-    args = parser.parse_args()
-    main(args.project)
+    main()
