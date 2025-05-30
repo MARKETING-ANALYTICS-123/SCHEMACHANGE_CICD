@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Important to access full git history including HEAD^
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -27,7 +29,13 @@ jobs:
         id: changes
         run: |
           git fetch origin PROD
-          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          else
+            CHANGED_FILES=$(git diff --name-only HEAD)
+          fi
+
           echo "Changed files: $CHANGED_FILES"
 
           PROJECT=""
@@ -45,19 +53,17 @@ jobs:
           fi
 
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
 
       - name: Set project-specific secrets
-        id: secrets
         run: |
-          PROJECT="${{ steps.changes.outputs.project }}"
           echo "Using secrets for project: $PROJECT"
-
-          echo "SNOWSQL_PRIVATE_KEY=${{ secrets[format('{0}_SNOWSQL_PRIVATE_KEY', env.PROJECT)] }}" >> $GITHUB_ENV
-          echo "SNOWSQL_ACCOUNT=${{ secrets[format('{0}_SNOWSQL_ACCOUNT', env.PROJECT)] }}" >> $GITHUB_ENV
-          echo "SNOWSQL_USER=${{ secrets[format('{0}_SNOWSQL_USER', env.PROJECT)] }}" >> $GITHUB_ENV
-          echo "SNOWSQL_ROLE=${{ secrets[format('{0}_SNOWSQL_ROLE', env.PROJECT)] }}" >> $GITHUB_ENV
-          echo "SNOWSQL_WAREHOUSE=${{ secrets[format('{0}_SNOWSQL_WAREHOUSE', env.PROJECT)] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_PRIVATE_KEY=${{ secrets[env.PROJECT + '_SNOWSQL_PRIVATE_KEY'] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_ACCOUNT=${{ secrets[env.PROJECT + '_SNOWSQL_ACCOUNT'] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_USER=${{ secrets[env.PROJECT + '_SNOWSQL_USER'] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_ROLE=${{ secrets[env.PROJECT + '_SNOWSQL_ROLE'] }}" >> $GITHUB_ENV
+          echo "SNOWSQL_WAREHOUSE=${{ secrets[env.PROJECT + '_SNOWSQL_WAREHOUSE'] }}" >> $GITHUB_ENV
 
       - name: Run deployment script
         run: |
-          python deploy.py --project ${{ steps.changes.outputs.project }}
+          python deploy.py --project $PROJECT
