@@ -1,24 +1,26 @@
 import os
-import json
+import sys
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
+import json
 
-# Load config
-config_path = os.environ.get("CONFIG_FILE")
+# Config & env
+config_path = os.environ.get('CONFIG_FILE')
 if not config_path or not os.path.exists(config_path):
-    raise FileNotFoundError(f"Config file not found at {config_path}")
+    print(f"❌ Config file not found at {config_path}")
+    sys.exit(1)
 
 with open(config_path, 'r') as f:
     config = json.load(f)
 
-project_name = config.get("project_name")
 snowflake_conf = config.get("snowflake")
 folders_conf = config.get("folders")
 
 # Load private key
-key_path = config.get("key_path")
+key_path = 'keys/temp_key.p8'
 if not os.path.exists(key_path):
-    raise FileNotFoundError(f"Private key file not found at {key_path}")
+    print(f"❌ Private key file not found at {key_path}")
+    sys.exit(1)
 
 with open(key_path, "rb") as key_file:
     p_key = serialization.load_pem_private_key(
@@ -42,40 +44,64 @@ conn = snowflake.connector.connect(
     database=snowflake_conf['database'],
     schema='PUBLIC'
 )
-
 cursor = conn.cursor()
-
-# Parse changed files from ENV
-changed_files = os.environ.get("CHANGED_FILES", "").split()
-changed_files = [f for f in changed_files if f.endswith(".sql")]
-
-if not changed_files:
-    print("No changed .sql files found.")
-    exit(0)
 
 def run_sql_script(cursor, script_path, schema):
     with open(script_path, 'r') as f:
         sql = f.read()
-    print(f"Executing in schema [{schema}]: {script_path}")
+    print(f"Executing {script_path} in schema [{schema}]")
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
-# Go through folders and match changed files
-for folder_type, folder_info in folders_conf.items():
-    folder_path = folder_info.get("path")
-    schema = folder_info.get("default_schema")
+# Get changed files from env
+changed_files_env = os.environ.get('CHANGED_FILES')
+if not changed_files_env:
+    print("❌ No changed files provided.")
+    sys.exit(1)
 
-    for file in changed_files:
-        if file.startswith(folder_path):
-            try:
-                run_sql_script(cursor, file, schema)
-                print(f"✅ Deployed {file}")
-            except Exception as e:
-                print(f"❌ Error deploying {file}: {e}")
-                cursor.close()
-                conn.close()
-                exit(1)
+changed_files = changed_files_env.split()
+
+deployed_any = False
+
+for file_path in changed_files:
+    # Determine project folder from path: dbscripts2/PROJECT/FOLDER_TYPE/file.sql
+    parts = file_path.split('/')
+    if len(parts) < 4:
+        print(f"⚠️ Skipping invalid path: {file_path}")
+        continue
+
+    project = parts[1]
+    folder_type = parts[2]
+
+    folder_info = folders_conf.get(folder_type.lower())
+    if not folder_info:
+        print(f"⚠️ No config found for folder type '{folder_type}', skipping {file_path}")
+        continue
+
+    schema = folder_info.get('default_schema')
+    if not schema:
+        print(f"⚠️ No default_schema for folder type '{folder_type}', skipping {file_path}")
+        continue
+
+    full_path = file_path
+    if not os.path.exists(full_path):
+        print(f"⚠️ File {full_path} does not exist locally, skipping.")
+        continue
+
+    try:
+        run_sql_script(cursor, full_path, schema)
+        print(f"✅ Deployed {file_path}")
+        deployed_any = True
+    except Exception as e:
+        print(f"❌ Failed deploying {file_path}: {e}")
+        cursor.close()
+        conn.close()
+        sys.exit(1)
 
 cursor.close()
 conn.close()
-print("🎉 Deployment complete.")
+
+if deployed_any:
+    print("🎉 Deployment complete.")
+else:
+    print("ℹ️ No files deployed.")
