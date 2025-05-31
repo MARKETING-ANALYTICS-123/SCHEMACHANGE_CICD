@@ -25,8 +25,11 @@ jobs:
       - name: Get changed SQL files as env var
         id: get-changed
         run: |
-          git fetch --no-tags --prune --depth=10 origin
-          changed_files=$(git diff --name-only origin/PROD...HEAD | grep '\.sql$' || true)
+          git fetch origin PROD --depth=1
+          BASE_SHA=$(git merge-base HEAD origin/PROD)
+          echo "Base SHA: $BASE_SHA"
+
+          changed_files=$(git diff --name-only $BASE_SHA HEAD | grep '\.sql$' || true)
 
           if [ -z "$changed_files" ]; then
             echo "❌ No changed .sql files found."
@@ -36,20 +39,23 @@ jobs:
           echo "CHANGED_FILES=$(echo $changed_files | tr '\n' ' ')" >> $GITHUB_ENV
           echo "✅ Found changed files: $changed_files"
 
-      - name: Extract project name from changed files
+      - name: Extract project name from first changed file
         id: extract-project
         run: |
           first_file=$(echo "$CHANGED_FILES" | awk '{print $1}')
-          echo "First file: $first_file"
+          echo "First changed file: $first_file"
 
-          project=$(echo "$first_file" | awk -F'/' '{print $2}')
-          if [ -z "$project" ]; then
+          if [[ ! $first_file =~ ^dbscripts2/([^/]+)/ ]]; then
             echo "❌ Could not detect project name from changed files."
             exit 1
           fi
+
+          project="${BASH_REMATCH[1]}"
           project_lower=$(echo "$project" | tr '[:upper:]' '[:lower:]')
+
           echo "PROJECT_NAME=$project_lower" >> $GITHUB_ENV
-          echo "SECRET_NAME=$(echo ${project}_PRIVATE_KEY | tr '[:lower:]' '[:upper:]')" >> $GITHUB_ENV
+          secret_name=$(echo "${project}_PRIVATE_KEY" | tr '[:lower:]' '[:upper:]')
+          echo "SECRET_NAME=$secret_name" >> $GITHUB_ENV
           echo "✅ Detected project: $project_lower"
 
       - name: Write private key to file
