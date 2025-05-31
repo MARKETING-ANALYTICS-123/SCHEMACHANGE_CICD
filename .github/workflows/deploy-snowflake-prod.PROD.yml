@@ -3,7 +3,8 @@ name: Deploy to PROD Snowflake
 on:
   push:
     branches: [PROD]
-    paths: ['dbscripts2/**']
+    paths:
+      - 'dbscripts2/**'
   workflow_dispatch:
 
 jobs:
@@ -14,12 +15,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Set up Python 3.8
         uses: actions/setup-python@v4
         with:
           python-version: 3.8
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: pip install snowflake-connector-python cryptography
 
       - name: Fetch PROD branch for diff
@@ -47,22 +48,23 @@ jobs:
             exit 1
           fi
           project=$(echo "$first_file" | cut -d'/' -f2)
-          project_lower=$(echo "$project" | tr '[:upper:]' '[:lower:]')
-          echo "Detected project: $project_lower"
-          echo "::set-output name=project::$project_lower"
+          echo "Detected project: $project"
+          echo "::set-output name=project::$project"
           echo "::set-output name=changed_files::${{ steps.changed-files.outputs.files }}"
 
       - name: Write private key to file
         run: |
-          SECRET_NAME=$(echo "${{ steps.extract-project.outputs.project }}" | tr '[:lower:]' '[:upper:]')_PRIVATE_KEY
+          PROJECT_UPPER=$(echo "${{ steps.extract-project.outputs.project }}" | tr '[:lower:]' '[:upper:]')
+          SECRET_NAME="${PROJECT_UPPER}_PRIVATE_KEY"
           echo "Using secret: $SECRET_NAME"
-          secret_value="${{ secrets[SECRET_NAME] }}"
-          if [ -z "$secret_value" ]; then
+          # Using GitHub environment variable syntax with bash indirection
+          PRIVATE_KEY="${{ secrets[SECRET_NAME] }}"
+          if [ -z "$PRIVATE_KEY" ]; then
             echo "❌ Secret $SECRET_NAME not found. Please add it to GitHub secrets."
             exit 1
           fi
           mkdir -p keys
-          echo "$secret_value" > keys/temp_key.p8
+          echo "$PRIVATE_KEY" > keys/temp_key.p8
           chmod 600 keys/temp_key.p8
 
       - name: Deploy SQL files to Snowflake
@@ -73,7 +75,7 @@ jobs:
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_PRIVATE_KEY: ${{ secrets[ format('{0}_PRIVATE_KEY', steps.extract-project.outputs.project | upper) ] }}
+          SNOWFLAKE_PRIVATE_KEY_PATH: keys/temp_key.p8
         run: |
           echo "Deploying project $PROJECT with changed files:"
           echo "$CHANGED_FILES"
