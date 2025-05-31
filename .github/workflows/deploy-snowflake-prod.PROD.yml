@@ -22,18 +22,18 @@ jobs:
       - name: Install dependencies
         run: pip install snowflake-connector-python cryptography
 
-      - name: Get changed files
+      - name: Get changed SQL files as env var
         id: get-changed
         run: |
-          git fetch origin ${{ github.event.before }}
-          git diff --name-only ${{ github.event.before }} ${{ github.sha }} > changed_files.txt
-          echo "Changed files:"
-          cat changed_files.txt
+          changed_files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.sql$' | tr '\n' ' ')
+          echo "CHANGED_FILES=$changed_files" >> $GITHUB_ENV
+          echo "Changed SQL files: $changed_files"
 
       - name: Extract project name from changed files
         id: extract-project
         run: |
-          project=$(awk -F'/' '/^dbscripts2\// { print $2; exit }' changed_files.txt)
+          # Get first changed file's project folder (second path segment)
+          project=$(echo "${{ env.CHANGED_FILES }}" | awk '{print $1}' | cut -d'/' -f2)
           if [ -z "$project" ]; then
             echo "❌ Could not detect project name from changed files."
             exit 1
@@ -58,4 +58,5 @@ jobs:
       - name: Deploy SQL to Snowflake
         env:
           CONFIG_FILE: configs/${{ env.PROJECT_NAME }}.json
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: python deploy_sql_files.py
