@@ -1,74 +1,106 @@
 import os
+import hashlib
 import json
-import base64
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
 
-def get_snowflake_connection(config, private_key_pem):
-    private_key = serialization.load_pem_private_key(
-        private_key_pem.encode(),
+HASH_TRACKER_FILE = '.deployed_data.json'
+
+# Load config
+config_path = os.environ.get('CONFIG_FILE')
+if not config_path or not os.path.exists(config_path):
+    raise FileNotFoundError(f"Config file not found at {config_path}")
+
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+project_name = config.get("project_name")
+snowflake_conf = config.get("snowflake")
+folders_conf = config.get("folders")
+
+# Load private key
+key_path = config.get("key_path")
+if not os.path.exists(key_path):
+    raise FileNotFoundError(f"Private key file not found at {key_path}")
+
+with open(key_path, "rb") as key_file:
+    p_key = serialization.load_pem_private_key(
+        key_file.read(),
         password=None,
-        backend=default_backend()
-    )
-    private_key_bytes = private_key.private_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
     )
 
-    return snowflake.connector.connect(
-        account=config["snowflake"]["account"],
-        user=config["snowflake"]["user"],
-        private_key=private_key_bytes,
-        role=config["snowflake"]["role"],
-        warehouse=config["snowflake"]["warehouse"],
-        database=config["snowflake"]["database"]
-    )
+private_key_bytes = p_key.private_bytes(
+    encoding=serialization.Encoding.DER,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption(),
+)
 
-def execute_sql_file(cursor, file_path):
-    with open(file_path, 'r') as file:
-        sql = file.read()
-        for statement in sql.strip().split(';'):
-            if statement.strip():
-                cursor.execute(statement)
+# Connect to Snowflake
+conn = snowflake.connector.connect(
+    user=snowflake_conf['user'],
+    account=snowflake_conf['account'].split('.')[0],
+    private_key=private_key_bytes,
+    role=snowflake_conf['role'],
+    warehouse=snowflake_conf['warehouse'],
+    database=snowflake_conf['database'],
+    schema='PUBLIC'
+)
 
-def main():
-    project = os.environ.get("PROJECT")
-    if not project:
-        raise Exception("PROJECT environment variable not set.")
+cursor = conn.cursor()
 
-    print(f"Starting deployment for project: {project}")
+# Load file change history
+if os.path.exists(HASH_TRACKER_FILE):
+    with open(HASH_TRACKER_FILE, 'r') as f:
+        deployed_data = json.load(f)
+else:
+    deployed_data = {}
 
-    config_path = f"configs/{project}.json"
-    with open(config_path) as f:
-        config = json.load(f)
+def get_file_hash(file_path):
+    with open(file_path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
-    private_key_env = os.environ.get("PRIVATE_KEY")
-    if not private_key_env:
-        raise Exception("PRIVATE_KEY secret not found in environment.")
-    private_key_pem = private_key_env.replace('\\n', '\n')
+def run_sql_script(cursor, script_path, schema):
+    with open(script_path, 'r') as f:
+        sql = f.read()
+    print(f"Executing in schema [{schema}]: {script_path}")
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute(sql)
 
-    changed_files = os.environ.get("CHANGED_FILES", "").split(',')
-    changed_files = [f for f in changed_files if f.endswith(".sql")]
+# Deploy scripts from configured folders
+for folder_type, folder_info in folders_conf.items():
+    folder_path = folder_info.get("path")
+    schema = folder_info.get("default_schema")
 
-    print("Changed files:", changed_files)
+    if not os.path.exists(folder_path):
+        print(f"⚠️ Folder {folder_path} does not exist, skipping.")
+        continue
 
-    conn = get_snowflake_connection(config, private_key_pem)
-    cursor = conn.cursor()
+    for file_name in sorted(os.listdir(folder_path)):
+        if not file_name.endswith('.sql'):
+            continue
 
-    try:
-        for folder_key, folder_conf in config["folders"].items():
-            folder_path = folder_conf["path"]
-            default_schema = folder_conf.get("default_schema", "")
-            for file in changed_files:
-                if file.startswith(folder_path):
-                    print(f"Deploying {file} to schema {default_schema}")
-                    cursor.execute(f"USE SCHEMA {config['snowflake']['database']}.{default_schema}")
-                    execute_sql_file(cursor, file)
-    finally:
-        cursor.close()
-        conn.close()
+        full_path = os.path.join(folder_path, file_name)
+        file_hash = get_file_hash(full_path)
+        prev = deployed_data.get(full_path)
 
-if __name__ == "__main__":
-    main()
+        if prev and prev['hash'] == file_hash:
+            print(f"⏩ Skipping {file_name} (unchanged)")
+            continue
+
+        try:
+            run_sql_script(cursor, full_path, schema)
+            deployed_data[full_path] = {'hash': file_hash}
+            print(f"✅ Deployed {file_name}")
+        except Exception as e:
+            print(f"❌ Error deploying {file_name}: {e}")
+            cursor.close()
+            conn.close()
+            exit(1)
+
+# Save hash tracker
+with open(HASH_TRACKER_FILE, 'w') as f:
+    json.dump(deployed_data, f, indent=2)
+
+cursor.close()
+conn.close()
+print("🎉 Deployment complete.")
