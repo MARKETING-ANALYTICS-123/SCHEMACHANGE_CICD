@@ -50,8 +50,6 @@ jobs:
         env:
           PROJECT: ${{ env.PROJECT }}
           MARKETING_PRIVATE_KEY: ${{ secrets.MARKETING_PRIVATE_KEY }}
-          SALES_PRIVATE_KEY: ${{ secrets.SALES_PRIVATE_KEY }}
-          FINANCE_PRIVATE_KEY: ${{ secrets.FINANCE_PRIVATE_KEY }}
         run: |
           echo "Using project: $PROJECT"
           CONFIG_FILE="configs/${PROJECT}.json"
