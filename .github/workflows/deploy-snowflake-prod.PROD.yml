@@ -27,6 +27,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install snowflake-connector-python cryptography jq
 
+
+      - name: Save private key file from secret
+        run: |
+          mkdir -p keys
+          echo "Saving private key for project ${{ env.PROJECT }}"
+          echo "${{ secrets[ format('{0}_PRIVATE_KEY', env.PROJECT) ] }}" | tr -d '\r' > ${{ env.KEY_PATH }}
+          chmod 600 ${{ env.KEY_PATH }}
+
+
       - name: Get changed SQL files (PR)
         if: github.event_name == 'pull_request'
         id: get-changed-pr
