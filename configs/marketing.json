@@ -15,7 +15,7 @@
         "TABLE",
         "VIEW",
         "FUNCTION",
-        "Tasks"
+        "TASK"
       ]
     },
     "RPT": {
@@ -24,7 +24,7 @@
         "TABLE",
         "VIEW",
         "FUNCTION",
-        "Tasks",
+        "TASK",
         "STOREDPROC"
       ]
     }
