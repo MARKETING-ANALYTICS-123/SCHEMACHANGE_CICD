@@ -26,16 +26,21 @@ jobs:
         id: get-changed
         run: |
           changed_files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.sql$' | tr '\n' ' ')
+          echo "DEBUG: changed_files = [$changed_files]"
           echo "CHANGED_FILES=$changed_files" >> $GITHUB_ENV
-          echo "Changed SQL files: $changed_files"
 
       - name: Extract project name from changed files
         id: extract-project
         run: |
-          # Get first changed file's project folder (second path segment)
-          project=$(echo "${{ env.CHANGED_FILES }}" | awk '{print $1}' | cut -d'/' -f2)
+          first_file=$(echo "$CHANGED_FILES" | awk '{print $1}')
+          echo "First file: $first_file"
+          if [ -z "$first_file" ]; then
+            echo "❌ No changed .sql files detected."
+            exit 1
+          fi
+          project=$(echo "$first_file" | cut -d'/' -f2)
           if [ -z "$project" ]; then
-            echo "❌ Could not detect project name from changed files."
+            echo "❌ Could not detect project name from path: $first_file"
             exit 1
           fi
           project_lower=$(echo "$project" | tr '[:upper:]' '[:lower:]')
