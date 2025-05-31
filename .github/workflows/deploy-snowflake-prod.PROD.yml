@@ -1,21 +1,16 @@
 name: Snowflake CI/CD Deploy
 
 on:
-  pull_request:
+  push:
     branches:
       - PROD
-  push:
+  pull_request:
     branches:
       - PROD
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -27,69 +22,56 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Get changed SQL files (PR)
-        if: github.event_name == 'pull_request'
-        id: get-changed-pr
+      - name: Get changed SQL files
+        id: detect-changes
         run: |
-          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
-          echo "Head SHA: ${{ github.event.pull_request.head.sha }}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+            HEAD=${{ github.event.pull_request.head.sha }}
+          else
+            git fetch origin PROD --depth=2
+            BASE=$(git rev-parse HEAD^)
+            HEAD=HEAD
+          fi
 
-          changed_files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep '\.sql$' || true)
-          echo "Changed files found: $changed_files"
+          echo "Base SHA: $BASE"
+          echo "Head SHA: $HEAD"
 
-          if [ -z "$changed_files" ]; then
-            echo "No changed .sql files found, exiting."
+          changed=$(git diff --name-only "$BASE" "$HEAD" | grep '\.sql$' || true)
+          if [[ -z "$changed" ]]; then
+            echo "No changed .sql files, exiting."
             exit 0
           fi
 
-          echo "CHANGED_FILES=$(echo $changed_files | tr '\n' ' ')" >> $GITHUB_ENV
-
-      - name: Get changed SQL files (push to PROD)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/PROD'
-        id: get-changed-push
-        run: |
-          git fetch origin PROD --depth=2
-          PREV_COMMIT=$(git rev-parse HEAD^)
-          echo "Previous commit: $PREV_COMMIT"
-
-          changed_files=$(git diff --name-only $PREV_COMMIT HEAD | grep '\.sql$' || true)
-          echo "Changed files found: $changed_files"
-
-          if [ -z "$changed_files" ]; then
-            echo "No changed .sql files found, exiting."
-            exit 0
-          fi
-
-          echo "CHANGED_FILES=$(echo $changed_files | tr '\n' ' ')" >> $GITHUB_ENV
-
-      - name: Detect project from first changed file
-        id: detect-project
-        run: |
-          echo "Changed files: $CHANGED_FILES"
-          first_file=$(echo "$CHANGED_FILES" | awk '{print $1}')
-          echo "First changed file: $first_file"
+          echo "CHANGED_FILES=$(echo $changed | tr '\n' ' ')" >> $GITHUB_ENV
+          first_file=$(echo "$changed" | head -n 1)
           project=$(echo "$first_file" | cut -d'/' -f2)
-          if [ -z "$project" ]; then
-            echo "❌ Could not detect project name from changed files."
-            exit 1
-          fi
           echo "PROJECT=$project" >> $GITHUB_ENV
 
-      - name: Set private key based on project
-        id: set-private-key
+      - name: Set config file path and extract private key
         run: |
-          PROJECT_UPPER=$(echo "$PROJECT" | tr '[:lower:]' '[:upper:]')
-          echo "Detected project: $PROJECT_UPPER"
-          if [ "$PROJECT_UPPER" = "MARKETING" ]; then
-            echo "PRIVATE_KEY=${{ secrets.MARKETING_PRIVATE_KEY }}" >> $GITHUB_ENV
-          elif [ "$PROJECT_UPPER" = "SALES" ]; then
-            echo "PRIVATE_KEY=${{ secrets.SALES_PRIVATE_KEY }}" >> $GITHUB_ENV
-          elif [ "$PROJECT_UPPER" = "FINANCE" ]; then
-            echo "PRIVATE_KEY=${{ secrets.FINANCE_PRIVATE_KEY }}" >> $GITHUB_ENV
-          else
-            echo "❌ Unknown project $PROJECT_UPPER"
+          echo "Using project: $PROJECT"
+          CONFIG_FILE="configs/${PROJECT}.json"
+          echo "CONFIG_FILE=$CONFIG_FILE" >> $GITHUB_ENV
+
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Config file not found: $CONFIG_FILE"
             exit 1
           fi
+
+          echo "Reading private key from secret..."
+          SECRET_NAME=$(echo "${PROJECT}_PRIVATE_KEY" | tr '[:lower:]' '[:upper:]')
+          echo "SECRET_NAME=$SECRET_NAME"
+
+          PRIVATE_KEY="${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT | upper)] }}"
+          if [ -z "$PRIVATE_KEY" ]; then
+            echo "❌ Private key not found in secrets."
+            exit 1
+          fi
+
+          mkdir -p keys
+          echo "$PRIVATE_KEY" > keys/temp_key.p8
+          echo "✅ Private key saved to keys/temp_key.p8"
 
       - name: Install Python dependencies
         run: |
@@ -97,15 +79,11 @@ jobs:
           pip install snowflake-connector-python cryptography
 
       - name: Run deployment script
-        env:
-          CHANGED_FILES: ${{ env.CHANGED_FILES }}
-          PROJECT: ${{ env.PROJECT }}
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_PRIVATE_KEY: ${{ env.PRIVATE_KEY }}
         run: |
           echo "Deploying project $PROJECT with changed files:"
           echo "$CHANGED_FILES"
-          python deploy_sql_files.py --project "$PROJECT" --files "$CHANGED_FILES"
+          CONFIG_FILE="configs/${PROJECT}.json"
+          python deploy_sql_files.py
+        env:
+          CONFIG_FILE: configs/${{ env.PROJECT }}.json
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
