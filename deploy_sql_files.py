@@ -2,6 +2,9 @@ import os
 import json
 import argparse
 import base64
+import tempfile
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 import snowflake.connector
 
 def load_config(project_name):
@@ -18,12 +21,20 @@ def get_changed_files():
 def get_snowflake_connection(config):
     private_key_b64 = os.environ.get("PRIVATE_KEY")
     if not private_key_b64:
-        raise Exception("PRIVATE_KEY environment variable not set")
-    
-    private_key = base64.b64decode(private_key_b64)
-    pk_file = "/tmp/temp_key.p8"
-    with open(pk_file, "wb") as f:
-        f.write(private_key)
+        raise Exception("PRIVATE_KEY not found in environment!")
+
+    private_key_pem = base64.b64decode(private_key_b64)
+    private_key = serialization.load_pem_private_key(
+        private_key_pem,
+        password=None,
+        backend=default_backend()
+    )
+
+    pk_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
 
     return snowflake.connector.connect(
         user=config['snowflake']['user'],
@@ -31,7 +42,7 @@ def get_snowflake_connection(config):
         role=config['snowflake']['role'],
         warehouse=config['snowflake']['warehouse'],
         database=config['snowflake']['database'],
-        private_key_file=pk_file
+        private_key=pk_bytes
     )
 
 def run_sql_file(cursor, file_path):
@@ -45,7 +56,7 @@ def main():
     parser.add_argument('--project', required=True)
     args = parser.parse_args()
     project_name = args.project.upper()
-    
+
     print(f"Starting deployment for project: {project_name}")
     config = load_config(project_name)
     changed_files = get_changed_files()
