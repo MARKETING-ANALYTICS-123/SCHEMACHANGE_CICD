@@ -4,7 +4,7 @@ import snowflake.connector
 from cryptography.hazmat.primitives import serialization
 
 # Load config
-config_path = os.environ.get('CONFIG_FILE')
+config_path = os.environ.get("CONFIG_FILE")
 if not config_path or not os.path.exists(config_path):
     raise FileNotFoundError(f"Config file not found at {config_path}")
 
@@ -45,41 +45,36 @@ conn = snowflake.connector.connect(
 
 cursor = conn.cursor()
 
-# Get list of changed files from env
+# Parse changed files from ENV
 changed_files = os.environ.get("CHANGED_FILES", "").split()
-if not changed_files:
-    print("❌ No changed files provided.")
-    exit(1)
+changed_files = [f for f in changed_files if f.endswith(".sql")]
 
-# Map paths to schema based on folder config
-for folder_key, folder_info in folders_conf.items():
+if not changed_files:
+    print("No changed .sql files found.")
+    exit(0)
+
+def run_sql_script(cursor, script_path, schema):
+    with open(script_path, 'r') as f:
+        sql = f.read()
+    print(f"Executing in schema [{schema}]: {script_path}")
+    cursor.execute(f"USE SCHEMA {schema};")
+    cursor.execute(sql)
+
+# Go through folders and match changed files
+for folder_type, folder_info in folders_conf.items():
     folder_path = folder_info.get("path")
     schema = folder_info.get("default_schema")
 
-    if not os.path.exists(folder_path):
-        print(f"⚠️ Folder {folder_path} does not exist, skipping.")
-        continue
-
-    for file_path in changed_files:
-        if not file_path.startswith(folder_path + "/") or not file_path.endswith(".sql"):
-            continue
-
-        if not os.path.exists(file_path):
-            print(f"⚠️ File {file_path} not found, skipping.")
-            continue
-
-        try:
-            with open(file_path, "r") as f:
-                sql = f.read()
-            print(f"🚀 Deploying {file_path} to schema {schema}")
-            cursor.execute(f"USE SCHEMA {schema};")
-            cursor.execute(sql)
-            print(f"✅ Deployed {file_path}")
-        except Exception as e:
-            print(f"❌ Error deploying {file_path}: {e}")
-            cursor.close()
-            conn.close()
-            exit(1)
+    for file in changed_files:
+        if file.startswith(folder_path):
+            try:
+                run_sql_script(cursor, file, schema)
+                print(f"✅ Deployed {file}")
+            except Exception as e:
+                print(f"❌ Error deploying {file}: {e}")
+                cursor.close()
+                conn.close()
+                exit(1)
 
 cursor.close()
 conn.close()
