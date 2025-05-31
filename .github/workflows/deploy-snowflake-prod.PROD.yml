@@ -25,16 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install snowflake-connector-python cryptography jq
-
-
-      - name: Save private key file from secret
-        run: |
-          mkdir -p keys
-          echo "Saving private key for project ${{ env.PROJECT }}"
-          echo "${{ secrets[ format('{0}_PRIVATE_KEY', env.PROJECT) ] }}" | tr -d '\r' > ${{ env.KEY_PATH }}
-          chmod 600 ${{ env.KEY_PATH }}
-
+          pip install snowflake-connector-python jq cryptography
 
       - name: Get changed SQL files (PR)
         if: github.event_name == 'pull_request'
@@ -76,10 +67,9 @@ jobs:
         run: |
           CONFIG_FILE="configs/${{ env.PROJECT }}.json"
           if [ ! -f "$CONFIG_FILE" ]; then
-            echo "❌ Config file $CONFIG_FILE does not exist."
+            echo "❌ Config file $CONFIG_FILE not found!"
             exit 1
           fi
-          echo "Using config file: $CONFIG_FILE"
           ACCOUNT=$(jq -r '.snowflake.account' $CONFIG_FILE)
           USER=$(jq -r '.snowflake.user' $CONFIG_FILE)
           ROLE=$(jq -r '.snowflake.role' $CONFIG_FILE)
@@ -94,10 +84,31 @@ jobs:
           echo "KEY_PATH=$KEY_PATH" >> $GITHUB_ENV
 
       - name: Save private key file from secret
+        shell: bash
+        env:
+          PROJECT: ${{ env.PROJECT }}
+          KEY_PATH: ${{ env.KEY_PATH }}
         run: |
-          echo "Saving private key for project ${{ env.PROJECT }}"
-          echo "${{ secrets[ format('{0}_PRIVATE_KEY', env.PROJECT) ] }}" | tr -d '\r' > ${{ env.KEY_PATH }}
-          chmod 600 ${{ env.KEY_PATH }}
+          mkdir -p $(dirname "$KEY_PATH")
+          echo "Saving private key for project $PROJECT"
+          # Access secret dynamically like MARKETING_PRIVATE_KEY, SALES_PRIVATE_KEY, etc.
+          PRIVATE_KEY_SECRET_NAME="${PROJECT}_PRIVATE_KEY"
+          # Use GitHub secrets context
+          PRIVATE_KEY="${{ secrets.MARKETING_PRIVATE_KEY }}" # fallback, will override below
+
+          # Dynamically get secret - workaround since secrets can't be dynamically accessed directly
+          # So we set mapping manually here (update this list for your projects)
+          if [ "$PROJECT" == "MARKETING" ]; then
+            PRIVATE_KEY="${{ secrets.MARKETING_PRIVATE_KEY }}"
+          elif [ "$PROJECT" == "SALES" ]; then
+            PRIVATE_KEY="${{ secrets.SALES_PRIVATE_KEY }}"
+          else
+            echo "❌ No private key secret configured for project $PROJECT"
+            exit 1
+          fi
+
+          echo "$PRIVATE_KEY" | tr -d '\r' > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
 
       - name: Run deployment script
         env:
@@ -109,9 +120,8 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ env.WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ env.DATABASE }}
           SNOWFLAKE_PRIVATE_KEY_PATH: ${{ env.KEY_PATH }}
-          CONFIG_FILE: configs/${{ env.PROJECT }}.json
         run: |
           set -x
           echo "Deploying project $PROJECT"
           echo "Changed files: $CHANGED_FILES"
-          python deploy_sql_files.py --project "$PROJECT" --files "$CHANGED_FILES" --config_file "$CONFIG_FILE" --key_path "$SNOWFLAKE_PRIVATE_KEY_PATH"
+          python deploy_sql_files.py --project "$PROJECT" --files "$CHANGED_FILES" --key_path "$SNOWFLAKE_PRIVATE_KEY_PATH"
