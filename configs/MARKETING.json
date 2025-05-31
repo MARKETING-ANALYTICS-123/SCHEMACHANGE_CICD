@@ -10,6 +10,7 @@
   "key_path": "keys/temp_key.p8",
   "schemas": {
     "XFRM": {
+      "schema": "XFRM_SCHEMA",
       "path": "dbscripts2/MARKETING/XFRM",
       "objects": [
         "TABLE",
@@ -19,6 +20,7 @@
       ]
     },
     "RPT": {
+      "schema": "RPT_SCHEMA",
       "path": "dbscripts2/MARKETING/RPT",
       "objects": [
         "TABLE",
