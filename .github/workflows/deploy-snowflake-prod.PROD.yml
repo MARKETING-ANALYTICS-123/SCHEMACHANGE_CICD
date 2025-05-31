@@ -1,77 +1,92 @@
-name: Deploy to PROD Snowflake
+name: Snowflake CI/CD Deploy
 
 on:
+  pull_request:
+    branches:
+      - PROD
   push:
-    branches: [PROD]
-    paths: ['dbscripts2/**']
-  workflow_dispatch:
+    branches:
+      - PROD
 
 jobs:
-  deploy-to-prod:
+  deploy:
     runs-on: ubuntu-latest
-
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # important to have full git history for diff
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.8
+          python-version: '3.x'
 
-      - name: Install dependencies
-        run: pip install snowflake-connector-python cryptography
-
-      - name: Get changed SQL files as env var
-        id: get-changed
+      - name: Get changed SQL files (PR)
+        if: github.event_name == 'pull_request'
+        id: get-changed-pr
         run: |
-          git fetch origin PROD --depth=1
-          BASE_SHA=$(git merge-base HEAD origin/PROD)
-          echo "Base SHA: $BASE_SHA"
+          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+          echo "Head SHA: ${{ github.event.pull_request.head.sha }}"
 
-          changed_files=$(git diff --name-only $BASE_SHA HEAD | grep '\.sql$' || true)
+          changed_files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep '\.sql$' || true)
+          echo "Changed files found: $changed_files"
 
           if [ -z "$changed_files" ]; then
-            echo "❌ No changed .sql files found."
+            echo "No changed .sql files found, exiting."
             exit 0
           fi
 
           echo "CHANGED_FILES=$(echo $changed_files | tr '\n' ' ')" >> $GITHUB_ENV
-          echo "✅ Found changed files: $changed_files"
 
-      - name: Extract project name from first changed file
-        id: extract-project
+      - name: Get changed SQL files (push to PROD)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/PROD'
+        id: get-changed-push
         run: |
+          git fetch origin PROD --depth=2
+          PREV_COMMIT=$(git rev-parse HEAD^)
+          echo "Previous commit: $PREV_COMMIT"
+
+          changed_files=$(git diff --name-only $PREV_COMMIT HEAD | grep '\.sql$' || true)
+          echo "Changed files found: $changed_files"
+
+          if [ -z "$changed_files" ]; then
+            echo "No changed .sql files found, exiting."
+            exit 0
+          fi
+
+          echo "CHANGED_FILES=$(echo $changed_files | tr '\n' ' ')" >> $GITHUB_ENV
+
+      - name: Detect project from first changed file
+        id: detect-project
+        run: |
+          echo "Changed files: $CHANGED_FILES"
           first_file=$(echo "$CHANGED_FILES" | awk '{print $1}')
           echo "First changed file: $first_file"
-
-          if [[ ! $first_file =~ ^dbscripts2/([^/]+)/ ]]; then
+          # Extract second segment as project name, e.g. dbscripts2/MARKETING/XFRM/abc.sql -> MARKETING
+          project=$(echo "$first_file" | cut -d'/' -f2)
+          if [ -z "$project" ]; then
             echo "❌ Could not detect project name from changed files."
             exit 1
           fi
+          echo "PROJECT=$project" >> $GITHUB_ENV
 
-          project="${BASH_REMATCH[1]}"
-          project_lower=$(echo "$project" | tr '[:upper:]' '[:lower:]')
-
-          echo "PROJECT_NAME=$project_lower" >> $GITHUB_ENV
-          secret_name=$(echo "${project}_PRIVATE_KEY" | tr '[:lower:]' '[:upper:]')
-          echo "SECRET_NAME=$secret_name" >> $GITHUB_ENV
-          echo "✅ Detected project: $project_lower"
-
-      - name: Write private key to file
-        run: |
-          echo "🔐 Using secret: $SECRET_NAME"
-          secret_value="${{ secrets[env.SECRET_NAME] }}"
-          if [ -z "$secret_value" ]; then
-            echo "❌ Secret $SECRET_NAME not found. Please add it to GitHub secrets."
-            exit 1
-          fi
-          mkdir -p keys
-          echo "$secret_value" > keys/temp_key.p8
-          chmod 600 keys/temp_key.p8
-
-      - name: Deploy SQL to Snowflake
+      - name: Run deployment script
         env:
-          CONFIG_FILE: configs/${{ env.PROJECT_NAME }}.json
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
-        run: python deploy_sql_files.py
+          PROJECT: ${{ env.PROJECT }}
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+        run: |
+          echo "Deploying project $PROJECT with changed files:"
+          echo "$CHANGED_FILES"
+          python deploy.py --project "$PROJECT" --files "$CHANGED_FILES"
