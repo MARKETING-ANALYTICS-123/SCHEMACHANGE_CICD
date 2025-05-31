@@ -1,16 +1,16 @@
-name: Deploy Changed SQL Files
+name: Deploy to PROD
 
 on:
   push:
     branches:
-      - main
-      - prod
+      - PROD
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -18,29 +18,59 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.11
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install snowflake-connector-python cryptography
+          python -m pip install --upgrade pip
+          pip install snowflake-connector-python cryptography pyyaml
 
-      - name: Detect Changed Project and Files
-        id: detect
+      - name: Detect changed project
+        id: changes
         run: |
-          echo "Changed files since last commit:"
-          git diff --name-only origin/${{ github.base_ref }} HEAD || git diff --name-only HEAD~1 HEAD
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^dbscripts2/' | tr '\n' ',')
-          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+          git fetch origin PROD
 
-          PROJECT=$(echo "$CHANGED_FILES" | cut -d'/' -f2 | head -n1 | tr '[:lower:]' '[:upper:]')
-          echo "Detected project: $PROJECT"
-          echo "PROJECT=$PROJECT" >> $GITHUB_ENV
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          else
+            CHANGED_FILES=$(git diff --name-only HEAD)
+          fi
 
-      - name: Deploy SQL Files
-        env:
-          PROJECT: ${{ env.PROJECT }}
-          PRIVATE_KEY: ${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT)] }}
-          CHANGED_FILES: ${{ env.CHANGED_FILES }}
+          echo "Changed files: $CHANGED_FILES"
+
+          PROJECT=""
+          for file in $CHANGED_FILES; do
+            if [[ "$file" == dbscripts2/* ]]; then
+              PROJECT=$(echo "$file" | cut -d'/' -f2 | tr '[:lower:]' '[:upper:]')
+              echo "Detected project: $PROJECT"
+              break
+            fi
+          done
+
+          if [[ -z "$PROJECT" ]]; then
+            echo "No project changes detected."
+            exit 1
+          fi
+
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+
+      - name: Set correct PRIVATE_KEY
+        run: |
+          case "$PROJECT" in
+            MARKETING)
+              echo "PRIVATE_KEY=${{ secrets.MARKETING_PRIVATE_KEY }}" >> $GITHUB_ENV
+              ;;
+            SALES)
+              echo "PRIVATE_KEY=${{ secrets.SALES_PRIVATE_KEY }}" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "No secret configured for project: $PROJECT"
+              exit 1
+              ;;
+          esac
+
+      - name: Run deployment script
         run: |
           echo "Running deployment for project: $PROJECT"
-          python deploy_sql_files.py
+          python deploy_sql_files.py --project "$PROJECT"
