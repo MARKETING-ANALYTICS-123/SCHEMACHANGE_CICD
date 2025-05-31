@@ -1,28 +1,32 @@
 import os
 import sys
+import json
+import argparse
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
-import json
 
-# Config & env
-config_path = os.environ.get('CONFIG_FILE')
-if not config_path or not os.path.exists(config_path):
-    print(f"❌ Config file not found at {config_path}")
+parser = argparse.ArgumentParser()
+parser.add_argument('--project', required=True)
+parser.add_argument('--files', required=True)
+parser.add_argument('--config_file', required=True)
+parser.add_argument('--key_path', required=True)
+args = parser.parse_args()
+
+if not os.path.isfile(args.config_file):
+    print(f"❌ Config file not found at {args.config_file}")
     sys.exit(1)
 
-with open(config_path, 'r') as f:
+with open(args.config_file, 'r') as f:
     config = json.load(f)
 
 snowflake_conf = config.get("snowflake")
-folders_conf = config.get("folders")
+schemas_conf = config.get("schemas")
 
-# Load private key
-key_path = 'keys/temp_key.p8'
-if not os.path.exists(key_path):
-    print(f"❌ Private key file not found at {key_path}")
+if not os.path.isfile(args.key_path):
+    print(f"❌ Private key file not found at {args.key_path}")
     sys.exit(1)
 
-with open(key_path, "rb") as key_file:
+with open(args.key_path, "rb") as key_file:
     p_key = serialization.load_pem_private_key(
         key_file.read(),
         password=None,
@@ -34,7 +38,6 @@ private_key_bytes = p_key.private_bytes(
     encryption_algorithm=serialization.NoEncryption(),
 )
 
-# Connect to Snowflake
 conn = snowflake.connector.connect(
     user=snowflake_conf['user'],
     account=snowflake_conf['account'].split('.')[0],
@@ -53,43 +56,34 @@ def run_sql_script(cursor, script_path, schema):
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
-# Get changed files from env
-changed_files_env = os.environ.get('CHANGED_FILES')
-if not changed_files_env:
-    print("❌ No changed files provided.")
-    sys.exit(1)
-
-changed_files = changed_files_env.split()
+changed_files = args.files.split()
 
 deployed_any = False
 
 for file_path in changed_files:
-    # Determine project folder from path: dbscripts2/PROJECT/FOLDER_TYPE/file.sql
     parts = file_path.split('/')
     if len(parts) < 4:
         print(f"⚠️ Skipping invalid path: {file_path}")
         continue
 
-    project = parts[1]
     folder_type = parts[2]
 
-    folder_info = folders_conf.get(folder_type.lower())
+    folder_info = schemas_conf.get(folder_type)
     if not folder_info:
-        print(f"⚠️ No config found for folder type '{folder_type}', skipping {file_path}")
+        print(f"⚠️ No config for folder '{folder_type}', skipping {file_path}")
         continue
 
-    schema = folder_info.get('default_schema')
+    schema = folder_info.get('schema')
+    # fallback in case schema missing, use "PUBLIC"
     if not schema:
-        print(f"⚠️ No default_schema for folder type '{folder_type}', skipping {file_path}")
-        continue
+        schema = "PUBLIC"
 
-    full_path = file_path
-    if not os.path.exists(full_path):
-        print(f"⚠️ File {full_path} does not exist locally, skipping.")
+    if not os.path.exists(file_path):
+        print(f"⚠️ File {file_path} does not exist locally, skipping.")
         continue
 
     try:
-        run_sql_script(cursor, full_path, schema)
+        run_sql_script(cursor, file_path, schema)
         print(f"✅ Deployed {file_path}")
         deployed_any = True
     except Exception as e:
