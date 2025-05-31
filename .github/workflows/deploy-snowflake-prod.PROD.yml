@@ -1,63 +1,47 @@
-name: Deploy to PROD
+name: Deploy Changed SQL Files
 
 on:
   push:
     branches:
-      - PROD
+      - main
+      - prod
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Ensures all commits are available
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install snowflake-connector-python cryptography pyyaml
+          pip install snowflake-connector-python cryptography
 
-      - name: Detect changed project
-        id: changes
+      - name: Detect Changed Project and Files
+        id: detect
         run: |
-          git fetch origin PROD
+          echo "Changed files since last commit:"
+          git diff --name-only HEAD~1 HEAD
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^dbscripts2/' | tr '\n' ',')
+          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
 
-          if git rev-parse HEAD^ >/dev/null 2>&1; then
-            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
-          else
-            CHANGED_FILES=$(git diff --name-only HEAD)
-          fi
+          # Extract project name
+          PROJECT=$(echo "$CHANGED_FILES" | cut -d'/' -f2 | head -n1)
+          echo "Detected project: $PROJECT"
+          echo "PROJECT=$PROJECT" >> $GITHUB_ENV
 
-          echo "Changed files: $CHANGED_FILES"
-
-          PROJECT=""
-          for file in $CHANGED_FILES; do
-            if [[ "$file" == dbscripts2/* ]]; then
-              PROJECT=$(echo "$file" | cut -d'/' -f2 | tr '[:lower:]' '[:upper:]')
-              echo "Detected project: $PROJECT"
-              break
-            fi
-          done
-
-          if [[ -z "$PROJECT" ]]; then
-            echo "No project changes detected."
-            exit 1
-          fi
-
-          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
-          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
-
-      - name: Run deployment script
+      - name: Deploy SQL Files
         env:
+          PROJECT: ${{ env.PROJECT }}
           PRIVATE_KEY: ${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT)] }}
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: |
           echo "Running deployment for project: $PROJECT"
-          python deploy_sql_files.py --project "$PROJECT"
+          python deploy_sql_files.py
