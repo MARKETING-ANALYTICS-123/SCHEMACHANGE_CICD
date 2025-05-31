@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install snowflake-connector-python jq
+          pip install snowflake-connector-python cryptography jq
 
       - name: Get changed SQL files (PR)
         if: github.event_name == 'pull_request'
@@ -66,7 +66,11 @@ jobs:
         id: parse-config
         run: |
           CONFIG_FILE="configs/${{ env.PROJECT }}.json"
-          cat $CONFIG_FILE
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Config file $CONFIG_FILE does not exist."
+            exit 1
+          fi
+          echo "Using config file: $CONFIG_FILE"
           ACCOUNT=$(jq -r '.snowflake.account' $CONFIG_FILE)
           USER=$(jq -r '.snowflake.user' $CONFIG_FILE)
           ROLE=$(jq -r '.snowflake.role' $CONFIG_FILE)
@@ -80,6 +84,12 @@ jobs:
           echo "DATABASE=$DATABASE" >> $GITHUB_ENV
           echo "KEY_PATH=$KEY_PATH" >> $GITHUB_ENV
 
+      - name: Save private key file from secret
+        run: |
+          echo "Saving private key for project ${{ env.PROJECT }}"
+          echo "${{ secrets[ format('{0}_PRIVATE_KEY', env.PROJECT) ] }}" | tr -d '\r' > ${{ env.KEY_PATH }}
+          chmod 600 ${{ env.KEY_PATH }}
+
       - name: Run deployment script
         env:
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
@@ -90,8 +100,9 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ env.WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ env.DATABASE }}
           SNOWFLAKE_PRIVATE_KEY_PATH: ${{ env.KEY_PATH }}
+          CONFIG_FILE: configs/${{ env.PROJECT }}.json
         run: |
           set -x
           echo "Deploying project $PROJECT"
           echo "Changed files: $CHANGED_FILES"
-          python deploy_sql_files.py --project "$PROJECT" --files "$CHANGED_FILES" --key_path "$SNOWFLAKE_PRIVATE_KEY_PATH"
+          python deploy_sql_files.py --project "$PROJECT" --files "$CHANGED_FILES" --config_file "$CONFIG_FILE" --key_path "$SNOWFLAKE_PRIVATE_KEY_PATH"
