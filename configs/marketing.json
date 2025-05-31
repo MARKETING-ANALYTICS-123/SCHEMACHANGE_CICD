@@ -8,14 +8,25 @@
     "database": "DEMO_DB"
   },
   "key_path": "keys/temp_key.p8",
-  "folders": {
-    "tables": {
-      "path": "dbscripts2/MARKETING/XFRM/TABLE",
-      "default_schema": "XFRM"
+  "schemas": {
+    "XFRM": {
+      "path": "dbscripts2/MARKETING/XFRM",
+      "objects": [
+        "TABLE",
+        "VIEW",
+        "FUNCTION",
+        "TASK"
+      ]
     },
-    "stored_procs": {
-      "path": "dbscripts2/MARKETING/RPT/StoredProcs",
-      "default_schema": "RPT"
+    "RPT": {
+      "path": "dbscripts2/MARKETING/RPT",
+      "objects": [
+        "TABLE",
+        "VIEW",
+        "FUNCTION",
+        "Tasks",
+        "STOREDPROC"
+      ]
     }
   }
 }
