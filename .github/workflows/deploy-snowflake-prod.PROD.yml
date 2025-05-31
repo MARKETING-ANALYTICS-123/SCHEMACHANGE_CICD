@@ -21,15 +21,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # full git history for diff
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
-
-      - name: Install Python dependencies
-        run: pip install snowflake-connector-python cryptography
 
       - name: Get changed SQL files (PR)
         if: github.event_name == 'pull_request'
@@ -72,7 +69,6 @@ jobs:
           echo "Changed files: $CHANGED_FILES"
           first_file=$(echo "$CHANGED_FILES" | awk '{print $1}')
           echo "First changed file: $first_file"
-          # Extract second segment as project name, e.g. dbscripts2/MARKETING/XFRM/abc.sql -> MARKETING
           project=$(echo "$first_file" | cut -d'/' -f2)
           if [ -z "$project" ]; then
             echo "❌ Could not detect project name from changed files."
@@ -84,6 +80,7 @@ jobs:
         env:
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
           PROJECT: ${{ env.PROJECT }}
+          CONFIG_FILE: configs/${{ env.PROJECT }}.json   # <-- This is the key addition
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
