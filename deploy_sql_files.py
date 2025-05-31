@@ -1,33 +1,42 @@
 import os
 import json
-import sys
-import tempfile
-from cryptography.hazmat.primitives import serialization
+import base64
 import snowflake.connector
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
 def get_snowflake_connection(config, private_key_pem):
-    # Write key to a temporary file
-    with tempfile.NamedTemporaryFile(delete=False, mode='w') as key_file:
-        key_file.write(private_key_pem)
-        key_file_path = key_file.name
-
     private_key = serialization.load_pem_private_key(
         private_key_pem.encode(),
         password=None,
+        backend=default_backend()
+    )
+    private_key_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
     )
 
     return snowflake.connector.connect(
-        account=config['snowflake']['account'],
-        user=config['snowflake']['user'],
-        role=config['snowflake']['role'],
-        warehouse=config['snowflake']['warehouse'],
-        private_key=private_key
+        account=config["snowflake"]["account"],
+        user=config["snowflake"]["user"],
+        private_key=private_key_bytes,
+        role=config["snowflake"]["role"],
+        warehouse=config["snowflake"]["warehouse"],
+        database=config["snowflake"]["database"]
     )
+
+def execute_sql_file(cursor, file_path):
+    with open(file_path, 'r') as file:
+        sql = file.read()
+        for statement in sql.strip().split(';'):
+            if statement.strip():
+                cursor.execute(statement)
 
 def main():
     project = os.environ.get("PROJECT")
     if not project:
-        raise ValueError("PROJECT env var is not set")
+        raise Exception("PROJECT environment variable not set.")
 
     print(f"Starting deployment for project: {project}")
 
@@ -35,18 +44,31 @@ def main():
     with open(config_path) as f:
         config = json.load(f)
 
-    changed_files = os.environ.get("CHANGED_FILES", "").split(",")
-    print(f"Changed files: {changed_files}")
+    private_key_env = os.environ.get("PRIVATE_KEY")
+    if not private_key_env:
+        raise Exception("PRIVATE_KEY secret not found in environment.")
+    private_key_pem = private_key_env.replace('\\n', '\n')
 
-    private_key_pem = os.environ.get("PRIVATE_KEY")
-    if not private_key_pem:
-        raise ValueError("Missing PRIVATE_KEY in environment")
+    changed_files = os.environ.get("CHANGED_FILES", "").split(',')
+    changed_files = [f for f in changed_files if f.endswith(".sql")]
+
+    print("Changed files:", changed_files)
 
     conn = get_snowflake_connection(config, private_key_pem)
+    cursor = conn.cursor()
 
-    # Your logic to execute SQL files goes here
-    # For now just simulate
-    print("✅ Connected to Snowflake successfully.")
+    try:
+        for folder_key, folder_conf in config["folders"].items():
+            folder_path = folder_conf["path"]
+            default_schema = folder_conf.get("default_schema", "")
+            for file in changed_files:
+                if file.startswith(folder_path):
+                    print(f"Deploying {file} to schema {default_schema}")
+                    cursor.execute(f"USE SCHEMA {config['snowflake']['database']}.{default_schema}")
+                    execute_sql_file(cursor, file)
+    finally:
+        cursor.close()
+        conn.close()
 
 if __name__ == "__main__":
     main()
