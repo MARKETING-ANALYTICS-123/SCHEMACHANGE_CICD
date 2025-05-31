@@ -1,4 +1,5 @@
 import os
+import json
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
 
@@ -7,20 +8,18 @@ config_path = os.environ.get('CONFIG_FILE')
 if not config_path or not os.path.exists(config_path):
     raise FileNotFoundError(f"Config file not found at {config_path}")
 
-import json
-
 with open(config_path, 'r') as f:
     config = json.load(f)
 
 project_name = config.get("project_name")
 snowflake_conf = config.get("snowflake")
-schemas_conf = config.get("schemas")  # Adjusted to 'schemas' as per latest JSON
+folders_conf = config.get("folders")
 
+# Load private key
 key_path = config.get("key_path")
 if not os.path.exists(key_path):
     raise FileNotFoundError(f"Private key file not found at {key_path}")
 
-# Load private key
 with open(key_path, "rb") as key_file:
     p_key = serialization.load_pem_private_key(
         key_file.read(),
@@ -46,56 +45,41 @@ conn = snowflake.connector.connect(
 
 cursor = conn.cursor()
 
-def run_sql_script(cursor, script_path, schema):
-    with open(script_path, 'r') as f:
-        sql = f.read()
-    print(f"Executing in schema [{schema}]: {script_path}")
-    cursor.execute(f"USE SCHEMA {schema};")
-    cursor.execute(sql)
+# Get list of changed files from env
+changed_files = os.environ.get("CHANGED_FILES", "").split()
+if not changed_files:
+    print("❌ No changed files provided.")
+    exit(1)
 
-# Get changed files from env var (space-separated list)
-changed_files_str = os.environ.get('CHANGED_FILES', '')
-changed_files = set(changed_files_str.split())
+# Map paths to schema based on folder config
+for folder_key, folder_info in folders_conf.items():
+    folder_path = folder_info.get("path")
+    schema = folder_info.get("default_schema")
 
-print("Changed files detected by Git:", changed_files)
-
-# Deploy only changed files
-for schema_name, schema_info in schemas_conf.items():
-    schema_path = schema_info.get("path")
-    objects = schema_info.get("objects", [])
-
-    if not os.path.exists(schema_path):
-        print(f"⚠️ Schema path {schema_path} does not exist, skipping.")
+    if not os.path.exists(folder_path):
+        print(f"⚠️ Folder {folder_path} does not exist, skipping.")
         continue
 
-    for obj_type in objects:
-        obj_path = os.path.join(schema_path, obj_type)
-        if not os.path.exists(obj_path):
-            print(f"⚠️ Object path {obj_path} does not exist, skipping.")
+    for file_path in changed_files:
+        if not file_path.startswith(folder_path + "/") or not file_path.endswith(".sql"):
             continue
 
-        for file_name in sorted(os.listdir(obj_path)):
-            if not file_name.endswith('.sql'):
-                continue
+        if not os.path.exists(file_path):
+            print(f"⚠️ File {file_path} not found, skipping.")
+            continue
 
-            full_path = os.path.join(obj_path, file_name)
-
-            # Construct repo relative path for comparison
-            # Assuming script runs from repo root
-            repo_relative_path = os.path.relpath(full_path, os.getcwd())
-
-            if repo_relative_path not in changed_files:
-                print(f"⏩ Skipping {file_name} (not changed)")
-                continue
-
-            try:
-                run_sql_script(cursor, full_path, schema_name)
-                print(f"✅ Deployed {file_name}")
-            except Exception as e:
-                print(f"❌ Error deploying {file_name}: {e}")
-                cursor.close()
-                conn.close()
-                exit(1)
+        try:
+            with open(file_path, "r") as f:
+                sql = f.read()
+            print(f"🚀 Deploying {file_path} to schema {schema}")
+            cursor.execute(f"USE SCHEMA {schema};")
+            cursor.execute(sql)
+            print(f"✅ Deployed {file_path}")
+        except Exception as e:
+            print(f"❌ Error deploying {file_path}: {e}")
+            cursor.close()
+            conn.close()
+            exit(1)
 
 cursor.close()
 conn.close()
