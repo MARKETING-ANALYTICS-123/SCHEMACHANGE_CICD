@@ -16,7 +16,7 @@ with open(config_path, 'r') as f:
 
 project_name = config.get("project_name")
 snowflake_conf = config.get("snowflake")
-folders_conf = config.get("folders")
+schemas_conf = config.get("schemas")
 
 # Load private key
 key_path = config.get("key_path")
@@ -43,7 +43,7 @@ conn = snowflake.connector.connect(
     role=snowflake_conf['role'],
     warehouse=snowflake_conf['warehouse'],
     database=snowflake_conf['database'],
-    schema='PUBLIC'
+    schema='PUBLIC'  # default schema, overridden in deploy step
 )
 
 cursor = conn.cursor()
@@ -66,36 +66,42 @@ def run_sql_script(cursor, script_path, schema):
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
-# Deploy scripts from configured folders
-for folder_type, folder_info in folders_conf.items():
-    folder_path = folder_info.get("path")
-    schema = folder_info.get("default_schema")
+# Deploy scripts based on config structure
+for schema_name, schema_info in schemas_conf.items():
+    schema_path = schema_info.get("path")
+    objects = schema_info.get("objects", [])
 
-    if not os.path.exists(folder_path):
-        print(f"⚠️ Folder {folder_path} does not exist, skipping.")
+    if not os.path.exists(schema_path):
+        print(f"⚠️ Schema path {schema_path} does not exist, skipping.")
         continue
 
-    for file_name in sorted(os.listdir(folder_path)):
-        if not file_name.endswith('.sql'):
+    for obj_type in objects:
+        obj_path = os.path.join(schema_path, obj_type)
+        if not os.path.exists(obj_path):
+            print(f"⚠️ Object path {obj_path} does not exist, skipping.")
             continue
 
-        full_path = os.path.join(folder_path, file_name)
-        file_hash = get_file_hash(full_path)
-        prev = deployed_data.get(full_path)
+        for file_name in sorted(os.listdir(obj_path)):
+            if not file_name.endswith('.sql'):
+                continue
 
-        if prev and prev['hash'] == file_hash:
-            print(f"⏩ Skipping {file_name} (unchanged)")
-            continue
+            full_path = os.path.join(obj_path, file_name)
+            file_hash = get_file_hash(full_path)
+            prev = deployed_data.get(full_path)
 
-        try:
-            run_sql_script(cursor, full_path, schema)
-            deployed_data[full_path] = {'hash': file_hash}
-            print(f"✅ Deployed {file_name}")
-        except Exception as e:
-            print(f"❌ Error deploying {file_name}: {e}")
-            cursor.close()
-            conn.close()
-            exit(1)
+            if prev and prev['hash'] == file_hash:
+                print(f"⏩ Skipping {file_name} (unchanged)")
+                continue
+
+            try:
+                run_sql_script(cursor, full_path, schema_name)
+                deployed_data[full_path] = {'hash': file_hash}
+                print(f"✅ Deployed {file_name}")
+            except Exception as e:
+                print(f"❌ Error deploying {file_name}: {e}")
+                cursor.close()
+                conn.close()
+                exit(1)
 
 # Save hash tracker
 with open(HASH_TRACKER_FILE, 'w') as f:
