@@ -16,23 +16,16 @@ jobs:
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
       SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # full history for diff
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install snowflake-connector-python cryptography
 
       - name: Get changed SQL files (PR)
         if: github.event_name == 'pull_request'
@@ -82,16 +75,36 @@ jobs:
           fi
           echo "PROJECT=$project" >> $GITHUB_ENV
 
+      - name: Set private key based on project
+        id: set-private-key
+        run: |
+          PROJECT_UPPER=$(echo "$PROJECT" | tr '[:lower:]' '[:upper:]')
+          echo "Detected project: $PROJECT_UPPER"
+          if [ "$PROJECT_UPPER" = "MARKETING" ]; then
+            echo "PRIVATE_KEY=${{ secrets.MARKETING_PRIVATE_KEY }}" >> $GITHUB_ENV
+          elif [ "$PROJECT_UPPER" = "SALES" ]; then
+            echo "PRIVATE_KEY=${{ secrets.SALES_PRIVATE_KEY }}" >> $GITHUB_ENV
+          elif [ "$PROJECT_UPPER" = "FINANCE" ]; then
+            echo "PRIVATE_KEY=${{ secrets.FINANCE_PRIVATE_KEY }}" >> $GITHUB_ENV
+          else
+            echo "❌ Unknown project $PROJECT_UPPER"
+            exit 1
+          fi
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install snowflake-connector-python cryptography
+
       - name: Run deployment script
         env:
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
           PROJECT: ${{ env.PROJECT }}
-          CONFIG_FILE: configs/${{ env.PROJECT }}.json
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          SNOWFLAKE_PRIVATE_KEY: ${{ env.PRIVATE_KEY }}
         run: |
           echo "Deploying project $PROJECT with changed files:"
           echo "$CHANGED_FILES"
