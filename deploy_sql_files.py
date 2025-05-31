@@ -1,82 +1,52 @@
 import os
 import json
-import argparse
-import base64
+import sys
 import tempfile
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
 import snowflake.connector
 
-def load_config(project_name):
-    config_path = f"configs/{project_name}.json"
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    with open(config_path) as f:
-        return json.load(f)
+def get_snowflake_connection(config, private_key_pem):
+    # Write key to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, mode='w') as key_file:
+        key_file.write(private_key_pem)
+        key_file_path = key_file.name
 
-def get_changed_files():
-    changed = os.popen('git diff --name-only HEAD^ HEAD').read().splitlines()
-    return [f for f in changed if f.endswith('.sql')]
-
-def get_snowflake_connection(config):
-    private_key_b64 = os.environ.get("PRIVATE_KEY")
-    if not private_key_b64:
-        raise Exception("PRIVATE_KEY not found in environment!")
-
-    private_key_pem = base64.b64decode(private_key_b64)
     private_key = serialization.load_pem_private_key(
-        private_key_pem,
+        private_key_pem.encode(),
         password=None,
-        backend=default_backend()
-    )
-
-    pk_bytes = private_key.private_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
     )
 
     return snowflake.connector.connect(
-        user=config['snowflake']['user'],
         account=config['snowflake']['account'],
+        user=config['snowflake']['user'],
         role=config['snowflake']['role'],
         warehouse=config['snowflake']['warehouse'],
-        database=config['snowflake']['database'],
-        private_key=pk_bytes
+        private_key=private_key
     )
 
-def run_sql_file(cursor, file_path):
-    with open(file_path, 'r') as f:
-        sql = f.read()
-    print(f"Executing {file_path}")
-    cursor.execute(sql)
-
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--project', required=True)
-    args = parser.parse_args()
-    project_name = args.project.upper()
+    project = os.environ.get("PROJECT")
+    if not project:
+        raise ValueError("PROJECT env var is not set")
 
-    print(f"Starting deployment for project: {project_name}")
-    config = load_config(project_name)
-    changed_files = get_changed_files()
-    print("Changed files:", changed_files)
+    print(f"Starting deployment for project: {project}")
 
-    conn = get_snowflake_connection(config)
-    cursor = conn.cursor()
-    try:
-        for section, details in config["folders"].items():
-            folder_path = details["path"]
-            schema = details.get("default_schema", "")
-            for file_path in changed_files:
-                if file_path.startswith(folder_path):
-                    print(f"Deploying {file_path} to schema {schema}")
-                    cursor.execute(f"USE SCHEMA {config['snowflake']['database']}.{schema}")
-                    run_sql_file(cursor, file_path)
-    finally:
-        cursor.close()
-        conn.close()
-        print("Deployment complete.")
+    config_path = f"configs/{project}.json"
+    with open(config_path) as f:
+        config = json.load(f)
+
+    changed_files = os.environ.get("CHANGED_FILES", "").split(",")
+    print(f"Changed files: {changed_files}")
+
+    private_key_pem = os.environ.get("PRIVATE_KEY")
+    if not private_key_pem:
+        raise ValueError("Missing PRIVATE_KEY in environment")
+
+    conn = get_snowflake_connection(config, private_key_pem)
+
+    # Your logic to execute SQL files goes here
+    # For now just simulate
+    print("✅ Connected to Snowflake successfully.")
 
 if __name__ == "__main__":
     main()
