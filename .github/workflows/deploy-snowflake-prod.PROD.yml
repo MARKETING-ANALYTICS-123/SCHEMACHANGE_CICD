@@ -21,12 +21,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # important to have full git history for diff
+          fetch-depth: 0  # full git history for diff
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+
+      - name: Install Python dependencies
+        run: pip install snowflake-connector-python cryptography
 
       - name: Get changed SQL files (PR)
         if: github.event_name == 'pull_request'
