@@ -15,7 +15,7 @@
         "TABLE",
         "VIEW",
         "FUNCTION",
-        "TASK"
+        "Tasks"
       ]
     },
     "RPT": {
