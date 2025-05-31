@@ -2,11 +2,9 @@ name: Snowflake CI/CD Deploy
 
 on:
   push:
-    branches:
-      - PROD
+    branches: [PROD]
   pull_request:
-    branches:
-      - PROD
+    branches: [PROD]
 
 jobs:
   deploy:
@@ -48,7 +46,12 @@ jobs:
           project=$(echo "$first_file" | cut -d'/' -f2)
           echo "PROJECT=$project" >> $GITHUB_ENV
 
-      - name: Set config file path and extract private key
+      - name: Extract private key and save config path
+        env:
+          PROJECT: ${{ env.PROJECT }}
+          MARKETING_PRIVATE_KEY: ${{ secrets.MARKETING_PRIVATE_KEY }}
+          SALES_PRIVATE_KEY: ${{ secrets.SALES_PRIVATE_KEY }}
+          FINANCE_PRIVATE_KEY: ${{ secrets.FINANCE_PRIVATE_KEY }}
         run: |
           echo "Using project: $PROJECT"
           CONFIG_FILE="configs/${PROJECT}.json"
@@ -59,18 +62,20 @@ jobs:
             exit 1
           fi
 
-          echo "Reading private key from secret..."
-          SECRET_NAME=$(echo "${PROJECT}_PRIVATE_KEY" | tr '[:lower:]' '[:upper:]')
-          echo "SECRET_NAME=$SECRET_NAME"
+          UPPER=$(echo "$PROJECT" | tr '[:lower:]' '[:upper:]')
+          echo "Uppercase project: $UPPER"
 
-          PRIVATE_KEY="${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT | upper)] }}"
-          if [ -z "$PRIVATE_KEY" ]; then
-            echo "❌ Private key not found in secrets."
+          # Select the correct secret
+          if [ "$UPPER" = "MARKETING" ]; then
+            echo "${MARKETING_PRIVATE_KEY}" > keys/temp_key.p8
+          elif [ "$UPPER" = "SALES" ]; then
+            echo "${SALES_PRIVATE_KEY}" > keys/temp_key.p8
+          elif [ "$UPPER" = "FINANCE" ]; then
+            echo "${FINANCE_PRIVATE_KEY}" > keys/temp_key.p8
+          else
+            echo "❌ No secret found for $UPPER"
             exit 1
           fi
-
-          mkdir -p keys
-          echo "$PRIVATE_KEY" > keys/temp_key.p8
           echo "✅ Private key saved to keys/temp_key.p8"
 
       - name: Install Python dependencies
@@ -82,7 +87,6 @@ jobs:
         run: |
           echo "Deploying project $PROJECT with changed files:"
           echo "$CHANGED_FILES"
-          CONFIG_FILE="configs/${PROJECT}.json"
           python deploy_sql_files.py
         env:
           CONFIG_FILE: configs/${{ env.PROJECT }}.json
