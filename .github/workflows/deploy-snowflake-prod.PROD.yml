@@ -1,4 +1,4 @@
-name: Snowflake CI/CD Deploy
+name: Snowflake CI/CD Deploy (PROD)
 
 on:
   push:
@@ -24,20 +24,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install snowflake-connector-python jq cryptography
 
-      - name: Get changed SQL files (PR)
-        if: github.event_name == 'pull_request'
-        id: get-changed-pr
-        run: |
-          changed_files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep '\.sql$' || true)
-          if [ -z "$changed_files" ]; then
-            echo "No changed .sql files found, exiting."
-            exit 0
-          fi
-          echo "CHANGED_FILES=$(echo $changed_files | tr '\n' ' ')" >> $GITHUB_ENV
-
-      - name: Get changed SQL files (push)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/PROD'
-        id: get-changed-push
+      - name: Get changed SQL files
+        id: get-changed
         run: |
           git fetch origin PROD --depth=2
           PREV_COMMIT=$(git rev-parse HEAD^)
@@ -67,7 +55,7 @@ jobs:
             echo "❌ Config file not found: $CONFIG_FILE"
             exit 1
           fi
-          cat "$CONFIG_FILE"
+          echo "Using config file: $CONFIG_FILE"
           ACCOUNT=$(jq -r '.snowflake.account' "$CONFIG_FILE")
           USER=$(jq -r '.snowflake.user' "$CONFIG_FILE")
           ROLE=$(jq -r '.snowflake.role' "$CONFIG_FILE")
@@ -87,19 +75,16 @@ jobs:
           echo "${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT)] }}" | tr -d '\r' > "${{ env.KEY_PATH }}"
         shell: bash
 
-      - name: Run deployment script
+      - name: Run deployment script with PROD replacements
         env:
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
           PROJECT: ${{ env.PROJECT }}
-          SNOWFLAKE_ACCOUNT: ${{ env.ACCOUNT }}
-          SNOWFLAKE_USER: ${{ env.USER }}
-          SNOWFLAKE_ROLE: ${{ env.ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ env.WAREHOUSE }}
-          SNOWFLAKE_DATABASE: ${{ env.DATABASE }}
-          SNOWFLAKE_PRIVATE_KEY_PATH: ${{ env.KEY_PATH }}
           CONFIG_FILE: configs/${{ env.PROJECT }}.json
+          SNOWFLAKE_PRIVATE_KEY_PATH: ${{ env.KEY_PATH }}
         run: |
-          set -x
-          echo "Deploying project $PROJECT"
-          echo "Changed files: $CHANGED_FILES"
-          python deploy_sql_files.py --project "$PROJECT" --files "$CHANGED_FILES" --config_file "$CONFIG_FILE" --key_path "$SNOWFLAKE_PRIVATE_KEY_PATH"
+          python deploy_sql_files.py \
+            --project "$PROJECT" \
+            --files "$CHANGED_FILES" \
+            --config_file "$CONFIG_FILE" \
+            --key_path "$SNOWFLAKE_PRIVATE_KEY_PATH" \
+            --replacements "_DEV=_PRD"
