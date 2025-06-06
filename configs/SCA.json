@@ -1,0 +1,34 @@
+{
+  "project_name": "SCA",
+  "snowflake": {
+    "account": "CAABMGX-OO80832.snowflakecomputing.com",
+    "user": "ARJIT",
+    "role": "ACCOUNTADMIN",
+    "warehouse": "COMPUTE_WH",
+    "database": "SCA_DB"
+  },
+  "key_path": "keys/temp_key.p8",
+  "schemas": {
+    "XFRM": {
+      "schema": "XFRM",
+      "path": "dbscripts2/SCA/XFRM",
+      "objects": [
+        "TABLE",
+        "VIEW",
+        "FUNCTION",
+        "TASK"
+      ]
+    },
+    "RPT": {
+      "schema": "RPT",
+      "path": "dbscripts2/SCA/RPT",
+      "objects": [
+        "TABLE",
+        "VIEW",
+        "FUNCTION",
+        "TASK",
+        "STOREDPROC"
+      ]
+    }
+  }
+}
