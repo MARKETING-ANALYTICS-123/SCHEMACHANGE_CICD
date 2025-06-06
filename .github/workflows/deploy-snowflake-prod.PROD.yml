@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       projects: ${{ steps.set-projects.outputs.projects }}
-      changed-files: ${{ steps.set-projects.outputs.changed_files_json }}
+      changed_files_json: ${{ steps.set-projects.outputs.changed_files_json }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -19,6 +19,7 @@ jobs:
 
       - name: Get changed SQL files and group by projects
         id: set-projects
+        shell: bash
         run: |
           git fetch origin PROD --depth=2
           PREV_COMMIT=$(git rev-parse HEAD^)
@@ -26,16 +27,14 @@ jobs:
 
           if [ -z "$changed_files" ]; then
             echo "No changed .sql files found, exiting."
-            echo "::set-output name=projects::[]"
-            echo "::set-output name=changed_files_json::{}"
+            echo "projects=[]" >> $GITHUB_OUTPUT
+            echo "changed_files_json={}" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Create associative array in bash: project -> list of files
           declare -A proj_files_map
 
-          while read -r file; do
-            # Extract project (2nd folder in path)
+          while IFS= read -r file; do
             project=$(echo "$file" | cut -d'/' -f2)
             if [ -z "$project" ]; then
               echo "Skipping invalid path $file"
@@ -48,10 +47,8 @@ jobs:
             fi
           done <<< "$changed_files"
 
-          # Create JSON arrays
           projects_json=$(printf '%s\n' "${!proj_files_map[@]}" | jq -R . | jq -s .)
-          
-          # Create JSON object: project -> files array
+
           files_json="{"
           first=1
           for proj in "${!proj_files_map[@]}"; do
@@ -65,11 +62,8 @@ jobs:
           done
           files_json+="}"
 
-          echo "Projects found: $projects_json"
-          echo "Files JSON: $files_json"
-
-          echo "::set-output name=projects::$projects_json"
-          echo "::set-output name=changed_files_json::$files_json"
+          echo "projects=$projects_json" >> $GITHUB_OUTPUT
+          echo "changed_files_json=$files_json" >> $GITHUB_OUTPUT
 
   deploy:
     needs: detect-projects
@@ -127,10 +121,10 @@ jobs:
           echo "KEY_PATH=$KEY_PATH" >> $GITHUB_ENV
 
       - name: Save private key from secret
+        shell: bash
         run: |
           mkdir -p keys
           echo "${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT)] }}" | tr -d '\r' > "${{ env.KEY_PATH }}"
-        shell: bash
 
       - name: Run deployment script with PROD replacements
         env:
