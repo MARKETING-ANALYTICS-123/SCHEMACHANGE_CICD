@@ -1,0 +1,49 @@
+{
+  "project_name": "MARKETING",
+  "environments": {
+    "prod": {
+      "snowflake": {
+        "account": "CAABMGX-OO80832.snowflakecomputing.com",
+        "user": "ARJIT",
+        "role": "ACCOUNTADMIN",
+        "warehouse": "COMPUTE_WH",
+        "database": "DEMO_DB"
+      },
+      "key_path": "keys/temp_key.p8",
+      "schemas": {
+        "XFRM": {
+          "schema": "XFRM",
+          "path": "dbscripts2/MARKETING/XFRM",
+          "objects": ["TABLE", "VIEW", "FUNCTION", "TASK"]
+        },
+        "RPT": {
+          "schema": "RPT",
+          "path": "dbscripts2/MARKETING/RPT",
+          "objects": ["TABLE", "VIEW", "FUNCTION", "TASK", "STOREDPROC"]
+        }
+      }
+    },
+    "dev": {
+      "snowflake": {
+        "account": "CAABMGX-OO80832.snowflakecomputing.com",
+        "user": "ARJIT_DEV",
+        "role": "ACCOUNTADMIN",
+        "warehouse": "COMPUTE_WH_DEV",
+        "database": "DEMO"
+      },
+      "key_path": "keys/temp_key_dev.p8",
+      "schemas": {
+        "XFRM": {
+          "schema": "XFRM",
+          "path": "dbscripts2/MARKETING/XFRM",
+          "objects": ["TABLE", "VIEW", "FUNCTION", "TASK"]
+        },
+        "RPT": {
+          "schema": "RPT",
+          "path": "dbscripts2/MARKETING/RPT",
+          "objects": ["TABLE", "VIEW", "FUNCTION", "TASK", "STOREDPROC"]
+        }
+      }
+    }
+  }
+}
