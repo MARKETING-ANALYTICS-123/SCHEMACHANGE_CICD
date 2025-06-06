@@ -10,6 +10,7 @@ parser.add_argument('--project', required=True)
 parser.add_argument('--files', required=True)
 parser.add_argument('--config_file', required=True)
 parser.add_argument('--key_path', required=True)
+parser.add_argument('--env', required=True, choices=['dev', 'prod'])
 parser.add_argument('--replacements', required=False, help="Space-separated replacements, e.g. '_DEV=_PRD DEV_DB=PRD_DB'")
 args = parser.parse_args()
 
@@ -20,8 +21,14 @@ if not os.path.isfile(args.config_file):
 with open(args.config_file, 'r') as f:
     config = json.load(f)
 
-snowflake_conf = config.get("snowflake")
-schemas_conf = config.get("schemas")
+# Pick the environment config (dev/prod)
+env_conf = config.get("environments", {}).get(args.env)
+if env_conf is None:
+    print(f"❌ Environment '{args.env}' not found in config")
+    sys.exit(1)
+
+snowflake_conf = env_conf.get("snowflake")
+schemas_conf = env_conf.get("schemas")
 
 if not os.path.isfile(args.key_path):
     print(f"❌ Private key file not found at {args.key_path}")
