@@ -1,4 +1,4 @@
-name: Snowflake CI/CD Deploy (PROD)
+name: Snowflake Deploy PROD
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -47,7 +48,7 @@ jobs:
           fi
           echo "PROJECT=$project" >> $GITHUB_ENV
 
-      - name: Parse project config JSON and set env vars
+      - name: Parse config JSON for prod env
         id: parse-config
         run: |
           CONFIG_FILE="configs/${{ env.PROJECT }}.json"
@@ -55,13 +56,12 @@ jobs:
             echo "❌ Config file not found: $CONFIG_FILE"
             exit 1
           fi
-          echo "Using config file: $CONFIG_FILE"
-          ACCOUNT=$(jq -r '.snowflake.account' "$CONFIG_FILE")
-          USER=$(jq -r '.snowflake.user' "$CONFIG_FILE")
-          ROLE=$(jq -r '.snowflake.role' "$CONFIG_FILE")
-          WAREHOUSE=$(jq -r '.snowflake.warehouse' "$CONFIG_FILE")
-          DATABASE=$(jq -r '.snowflake.database' "$CONFIG_FILE")
-          KEY_PATH=$(jq -r '.key_path' "$CONFIG_FILE")
+          ACCOUNT=$(jq -r ".environments.prod.snowflake.account" "$CONFIG_FILE")
+          USER=$(jq -r ".environments.prod.snowflake.user" "$CONFIG_FILE")
+          ROLE=$(jq -r ".environments.prod.snowflake.role" "$CONFIG_FILE")
+          WAREHOUSE=$(jq -r ".environments.prod.snowflake.warehouse" "$CONFIG_FILE")
+          DATABASE=$(jq -r ".environments.prod.snowflake.database" "$CONFIG_FILE")
+          KEY_PATH=$(jq -r ".environments.prod.key_path" "$CONFIG_FILE")
           echo "ACCOUNT=$ACCOUNT" >> $GITHUB_ENV
           echo "USER=$USER" >> $GITHUB_ENV
           echo "ROLE=$ROLE" >> $GITHUB_ENV
@@ -72,19 +72,20 @@ jobs:
       - name: Save private key from secret
         run: |
           mkdir -p keys
-          echo "${{ secrets[format('{0}_PRIVATE_KEY', env.PROJECT)] }}" | tr -d '\r' > "${{ env.KEY_PATH }}"
+          echo "${{ secrets.MARKETING_prod_PRIVATE_KEY }}" | tr -d '\r' > "${{ env.KEY_PATH }}"
         shell: bash
 
-      - name: Run deployment script with PROD replacements
+      - name: Run deployment script
         env:
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
           PROJECT: ${{ env.PROJECT }}
           CONFIG_FILE: configs/${{ env.PROJECT }}.json
-          SNOWFLAKE_PRIVATE_KEY_PATH: ${{ env.KEY_PATH }}
+          KEY_PATH: ${{ env.KEY_PATH }}
+          ENV: prod
         run: |
           python deploy_sql_files.py \
             --project "$PROJECT" \
             --files "$CHANGED_FILES" \
             --config_file "$CONFIG_FILE" \
-            --key_path "$SNOWFLAKE_PRIVATE_KEY_PATH" \
-            --replacements "_DEV=_PRD"
+            --key_path "$KEY_PATH" \
+            --env "prod"
