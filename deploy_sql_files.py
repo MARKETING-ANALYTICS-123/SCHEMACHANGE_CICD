@@ -10,6 +10,7 @@ parser.add_argument('--project', required=True)
 parser.add_argument('--files', required=True)
 parser.add_argument('--config_file', required=True)
 parser.add_argument('--key_path', required=True)
+parser.add_argument('--replacements', required=False, help="Space-separated replacements, e.g. '_DEV=_PRD DEV_DB=PRD_DB'")
 args = parser.parse_args()
 
 if not os.path.isfile(args.config_file):
@@ -49,10 +50,19 @@ conn = snowflake.connector.connect(
 )
 cursor = conn.cursor()
 
-def run_sql_script(cursor, script_path, schema):
+replacements = {}
+if args.replacements:
+    for pair in args.replacements.split():
+        if '=' in pair:
+            k, v = pair.split('=', 1)
+            replacements[k] = v
+
+def run_sql_script(cursor, script_path, schema, replacements):
     with open(script_path, 'r') as f:
         sql = f.read()
-    print(f"Executing {script_path} in schema [{schema}]")
+    for old, new in replacements.items():
+        sql = sql.replace(old, new)
+    print(f"Executing {script_path} in schema [{schema}] with replacements: {replacements}")
     cursor.execute(f"USE SCHEMA {schema};")
     cursor.execute(sql)
 
@@ -73,17 +83,14 @@ for file_path in changed_files:
         print(f"⚠️ No config for folder '{folder_type}', skipping {file_path}")
         continue
 
-    schema = folder_info.get('schema')
-    # fallback in case schema missing, use "PUBLIC"
-    if not schema:
-        schema = "XFRM"
+    schema = folder_info.get('schema', 'XFRM')
 
     if not os.path.exists(file_path):
         print(f"⚠️ File {file_path} does not exist locally, skipping.")
         continue
 
     try:
-        run_sql_script(cursor, file_path, schema)
+        run_sql_script(cursor, file_path, schema, replacements)
         print(f"✅ Deployed {file_path}")
         deployed_any = True
     except Exception as e:
