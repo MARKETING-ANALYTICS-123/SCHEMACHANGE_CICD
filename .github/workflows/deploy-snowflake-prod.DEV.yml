@@ -1,47 +1,70 @@
-name: Deploy to DEV and Create PR to PROD
+name: Snowflake CI/CD Deploy (DEV)
 
 on:
   push:
-    branches: [DEV]
-    paths: ['dbscripts2/**']
-  workflow_dispatch:
+    branches:
+      - DEV
 
 jobs:
-  deploy-and-create-pr:
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout full repo (including all branches)
+      - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Important to fetch all refs
+          fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
-          python-version: 3.8
+          python-version: '3.x'
 
       - name: Install dependencies
-        run: pip install snowflake-connector-python
-
-      - name: Deploy to DEV Snowflake
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.DEV_SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.DEV_SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.DEV_SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_ROLE: ${{ secrets.DEV_SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.DEV_SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_DATABASE: ${{ secrets.DEV_SNOWFLAKE_DATABASE }}
-        run: python deploy_sql_files.py
-
-      - name: Create Pull Request from DEV to PROD
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh auth status
-          gh pr create \
-            --title "🚀 Promote DEV to PROD" \
-            --body "This PR promotes changes from DEV to PROD" \
-            --base PROD \
-            --head DEV \
-            || echo "PR already exists or nothing to PR"
+          python -m pip install --upgrade pip
+          pip install snowflake-connector-python jq cryptography
+
+      - name: Get changed SQL files
+        id: get-changed
+        run: |
+          git fetch origin DEV --depth=2
+          PREV_COMMIT=$(git rev-parse HEAD^)
+          changed_files=$(git diff --name-only $PREV_COMMIT HEAD | grep '\.sql$' || true)
+          if [ -z "$changed_files" ]; then
+            echo "No changed .sql files found, exiting."
+            exit 0
+          fi
+          echo "CHANGED_FILES=$(echo $changed_files | tr '\n' ' ')" >> $GITHUB_ENV
+
+      - name: Detect project from first changed file
+        id: detect-project
+        run: |
+          first_file=$(echo "${{ env.CHANGED_FILES }}" | awk '{print $1}')
+          project=$(echo "$first_file" | cut -d'/' -f2)
+          if [ -z "$project" ]; then
+            echo "❌ Could not detect project name."
+            exit 1
+          fi
+          echo "PROJECT=$project" >> $GITHUB_ENV
+
+      - name: Save private key from secret
+        run: |
+          mkdir -p keys
+          echo "${{ secrets.MARKETING_PRIVATE_KEY }}" | tr -d '\r' > keys/temp_key_dev.p8
+        shell: bash
+
+      - name: Run deployment script for DEV
+        env:
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
+          PROJECT: ${{ env.PROJECT }}
+          CONFIG_FILE: configs/${{ env.PROJECT }}.json
+          KEY_PATH: keys/temp_key_dev.p8
+          ENV: dev
+        run: |
+          python deploy_sql_files.py \
+            --project "$PROJECT" \
+            --files "$CHANGED_FILES" \
+            --config_file "$CONFIG_FILE" \
+            --key_path "$KEY_PATH" \
+            --env "$ENV" \
+            --replacements "_DEV=_PRD"
