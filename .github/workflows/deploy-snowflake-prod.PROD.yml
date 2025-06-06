@@ -6,8 +6,81 @@ on:
       - PROD
 
 jobs:
-  deploy:
+  detect-projects:
     runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.set-projects.outputs.projects }}
+      changed-files: ${{ steps.set-projects.outputs.changed_files_json }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get changed SQL files and group by projects
+        id: set-projects
+        run: |
+          git fetch origin PROD --depth=2
+          PREV_COMMIT=$(git rev-parse HEAD^)
+          changed_files=$(git diff --name-only $PREV_COMMIT HEAD | grep '\.sql$' || true)
+
+          if [ -z "$changed_files" ]; then
+            echo "No changed .sql files found, exiting."
+            echo "::set-output name=projects::[]"
+            echo "::set-output name=changed_files_json::{}"
+            exit 0
+          fi
+
+          # Create associative array in bash: project -> list of files
+          declare -A proj_files_map
+
+          while read -r file; do
+            # Extract project (2nd folder in path)
+            project=$(echo "$file" | cut -d'/' -f2)
+            if [ -z "$project" ]; then
+              echo "Skipping invalid path $file"
+              continue
+            fi
+            if [[ -z "${proj_files_map[$project]}" ]]; then
+              proj_files_map[$project]="$file"
+            else
+              proj_files_map[$project]="${proj_files_map[$project]} $file"
+            fi
+          done <<< "$changed_files"
+
+          # Create JSON arrays
+          projects_json=$(printf '%s\n' "${!proj_files_map[@]}" | jq -R . | jq -s .)
+          
+          # Create JSON object: project -> files array
+          files_json="{"
+          first=1
+          for proj in "${!proj_files_map[@]}"; do
+            files_array=$(echo "${proj_files_map[$proj]}" | tr ' ' '\n' | jq -R . | jq -s .)
+            if [ $first -eq 1 ]; then
+              first=0
+            else
+              files_json+=","
+            fi
+            files_json+="\"$proj\":$files_array"
+          done
+          files_json+="}"
+
+          echo "Projects found: $projects_json"
+          echo "Files JSON: $files_json"
+
+          echo "::set-output name=projects::$projects_json"
+          echo "::set-output name=changed_files_json::$files_json"
+
+  deploy:
+    needs: detect-projects
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: ${{ fromJson(needs.detect-projects.outputs.projects) }}
+    if: matrix.project != ''
+    env:
+      PROJECT: ${{ matrix.project }}
+      CHANGED_FILES_JSON: ${{ needs.detect-projects.outputs.changed_files_json }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -24,33 +97,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install snowflake-connector-python jq cryptography
 
-      - name: Get changed SQL files
-        id: get-changed
+      - name: Parse changed files for this project
+        id: parse-files
         run: |
-          git fetch origin PROD --depth=2
-          PREV_COMMIT=$(git rev-parse HEAD^)
-          changed_files=$(git diff --name-only $PREV_COMMIT HEAD | grep '\.sql$' || true)
-          if [ -z "$changed_files" ]; then
-            echo "No changed .sql files found, exiting."
-            exit 0
-          fi
-          echo "CHANGED_FILES=$(echo $changed_files | tr '\n' ' ')" >> $GITHUB_ENV
-
-      - name: Detect project from first changed file
-        id: detect-project
-        run: |
-          first_file=$(echo "${{ env.CHANGED_FILES }}" | awk '{print $1}')
-          project=$(echo "$first_file" | cut -d'/' -f2)
-          if [ -z "$project" ]; then
-            echo "❌ Could not detect project name."
-            exit 1
-          fi
-          echo "PROJECT=$project" >> $GITHUB_ENV
+          echo "$CHANGED_FILES_JSON" | jq -r --arg proj "$PROJECT" '.[$proj] | join(" ")' > changed_files.txt
+          CHANGED_FILES=$(cat changed_files.txt)
+          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
 
       - name: Parse project config JSON and set env vars
         id: parse-config
         run: |
-          CONFIG_FILE="configs/${{ env.PROJECT }}.json"
+          CONFIG_FILE="configs/${PROJECT}.json"
           if [ ! -f "$CONFIG_FILE" ]; then
             echo "❌ Config file not found: $CONFIG_FILE"
             exit 1
