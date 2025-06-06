@@ -1,9 +1,6 @@
 name: Snowflake CI/CD Deploy
 
 on:
-  pull_request:
-    branches:
-      - PROD
   push:
     branches:
       - PROD
