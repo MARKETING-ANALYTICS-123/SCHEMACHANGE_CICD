@@ -1,7 +1,7 @@
 {
   "project_name": "MARKETING",
   "snowflake": {
-    "account": "CAABMGX-OO80832.snowflakecomputing.com",
+    "account": "RAZKMCG-GN19866.snowflakecomputing.com",
     "user": "ARJIT",
     "role": "ACCOUNTADMIN",
     "warehouse": "COMPUTE_WH",
