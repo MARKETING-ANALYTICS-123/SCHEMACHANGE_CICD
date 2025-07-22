@@ -34,6 +34,7 @@ jobs:
 
   deploy:
     needs: detect-projects
+    if: "!contains(github.event.head_commit.message, '[skip-deploy]')"  # 👈 Skips if commit message has [skip-deploy]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -79,7 +80,6 @@ jobs:
           echo "DATABASE=$DATABASE" >> $GITHUB_ENV
           echo "KEY_PATH=$KEY_PATH" >> $GITHUB_ENV
 
-          # Save private key from secret to the key path
           mkdir -p $(dirname "$KEY_PATH")
           echo "${{ secrets[ format('{0}_PRIVATE_KEY', env.PROJECT) ] }}" | tr -d '\r' > "$KEY_PATH"
 
@@ -89,7 +89,6 @@ jobs:
           CONFIG_FILE: configs/${{ env.PROJECT }}.json
           SNOWFLAKE_PRIVATE_KEY_PATH: ${{ env.KEY_PATH }}
         run: |
-          # Get list of changed SQL files for this project only
           PREV_COMMIT=$(git rev-parse HEAD^)
           changed_files=$(git diff --name-only $PREV_COMMIT HEAD | grep '^dbscripts2/'${PROJECT}'/' | grep '\.sql$' || true)
           if [ -z "$changed_files" ]; then
