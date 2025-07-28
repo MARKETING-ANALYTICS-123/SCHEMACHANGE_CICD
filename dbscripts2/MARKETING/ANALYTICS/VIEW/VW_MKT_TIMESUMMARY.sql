@@ -1,0 +1,44 @@
+create or replace view VW_MKT_TIMESUMMARY(
+	ID,
+	"Fiscal Year Name",
+	"Fiscal Year",
+	"Fiscal Quarter Name",
+	"Fiscal Quarter",
+	"Fiscal Month",
+	"Fiscal Week Name",
+	"Fiscal Week",
+	"Date",
+	"Fiscal Day Of Month",
+	"Fiscal Year Month",
+	"Fiscal Day Of Week",
+	"Fiscal Day Of Quarter",
+	"Fiscal Day Of Year",
+	"Fiscal Month Name",
+	"Last Year Id",
+	"Last Year Date",
+	"Last Year Unshifted Id",
+	"Calendar Year",
+	"Calendar Month",
+	"Calendar Month Name",
+	"Calendar Quarter",
+	"Calendar Week",
+	"Calendar Week Name",
+	"Completed Week Flag"
+) as
+WITH CompletedDate AS(
+SELECT ID 
+FROM CDP_JC.PUBLIC.TIMESUMMARY T
+WHERE 
+TO_DATE(T.DATEINUNIX) <=(SELECT MAX(DATE(DATEINUNIX)) FROM CDP_JC.PUBLIC.TIMESUMMARY WHERE DATE(DATEINUNIX)>=CURRENT_DATE-7 AND DATE(DATEINUNIX)<CURRENT_DATE AND FISCALDAYOFWEEK=7)
+AND 
+T.ID>=(SELECT MIN(ID) FROM CDP_JC.PUBLIC.TIMESUMMARY WHERE FISCALYEAR = (SELECT FISCALYEAR-2 FROM CDP_JC.PUBLIC.TIMESUMMARY WHERE TO_DATE(DATEINUNIX)>CURRENT_DATE-7 AND TO_DATE(DATEINUNIX)<=CURRENT_DATE AND FISCALDAYOFWEEK = 7))
+)
+SELECT 
+T.*
+,CASE WHEN C.ID IS NULL THEN 0 ELSE 1 END AS "Completed Week Flag"
+FROM EDW_MARKETING_PRD.ANALYTICS."Dim Date" T
+LEFT JOIN CompletedDate C ON T.ID = C.ID 
+WHERE 
+    TO_DATE(T."Date") <= CURRENT_DATE
+AND
+    T.ID >= (SELECT MIN(ID) FROM CDP_JC.PUBLIC.TIMESUMMARY WHERE FISCALYEAR = (SELECT FISCALYEAR-2 FROM CDP_JC.PUBLIC.TIMESUMMARY WHERE TO_DATE(DATEINUNIX)>CURRENT_DATE-7 AND TO_DATE(DATEINUNIX)<=CURRENT_DATE AND FISCALDAYOFWEEK = 7));

@@ -1,0 +1,20 @@
+create or replace TABLE ACQUISITION (
+	"Date Key" NUMBER(38,0),
+	"Brand ID" VARCHAR(16777216),
+	"MasterCustomer ID" VARCHAR(16777216),
+	"Loyalty Flag" VARCHAR(16777216),
+	"Status Type" VARCHAR(16777216),
+	"FM Status Type" VARCHAR(16777216),
+	"FQ Status Type" VARCHAR(16777216),
+	"FY Status Type" VARCHAR(16777216),
+	"Status Type Brand" VARCHAR(16777216),
+	"FM Status Type Brand" VARCHAR(16777216),
+	"FQ Status Type Brand" VARCHAR(16777216),
+	"FY Status Type Brand" VARCHAR(16777216),
+	"Loyalty Signup Date" DATE,
+	"Transaction Timestamp" DATE,
+	"Cashier Associate" VARCHAR(16777216),
+	"Email Capture Flag" VARCHAR(16777216),
+	"Transactions" VARCHAR(16777216),
+	"Last Modified Date" TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP()
+);

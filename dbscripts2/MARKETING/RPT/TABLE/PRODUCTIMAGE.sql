@@ -1,0 +1,6 @@
+create or replace TABLE "PRODUCT IMAGE" (
+	FISCALYEAR NUMBER(38,0),
+	"Id" NUMBER(38,0),
+	"Image Url" VARCHAR(16777216),
+	"Last Modified Date" TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP()
+);

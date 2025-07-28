@@ -1,0 +1,5 @@
+create or replace TABLE PROMO_CODE (
+	MESSAGEID VARCHAR(200),
+	"Promo Group" VARCHAR(200),
+	ID NUMBER(38,0)
+);

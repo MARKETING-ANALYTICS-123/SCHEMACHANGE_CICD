@@ -1,0 +1,7 @@
+create or replace TABLE TABLE_STATUS (
+	"Created" TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP(),
+	"Name" VARCHAR(16777216),
+	"Database Name" VARCHAR(16777216),
+	"Schema Name" VARCHAR(16777216),
+	"Rows" NUMBER(38,0)
+);

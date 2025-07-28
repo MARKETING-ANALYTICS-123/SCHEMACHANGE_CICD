@@ -1,0 +1,72 @@
+CREATE OR REPLACE PROCEDURE "USP_POPULATE_MADEWELL_CUSTOMER"()
+RETURNS VARCHAR(100)
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS '
+BEGIN
+    CREATE OR REPLACE TABLE Temp."MADEWELL CUSTOMER" (
+        MASTERCUSTOMERID VARCHAR(16777216),
+        "Customer Id" NUMBER(8, 0),
+        "Last Modified Date" TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP() 
+    );
+
+    INSERT INTO Temp."MADEWELL CUSTOMER" (
+        MASTERCUSTOMERID,
+        "Customer Id"
+    )
+    WITH ALL_CUSTOMERS AS (
+        SELECT DISTINCT 
+            MASTERCUSTOMERID
+        FROM
+            CDP.PUBLIC.TRANSACTIONSUMMARY T
+        LEFT JOIN 
+            CDP.PUBLIC.TIMESUMMARY TS 
+            ON DATE(T.TRANSACTIONDATE) = DATE(TS.DATEINUNIX)
+        WHERE 
+            T.SUBTYPE IN (''Shipped'', ''Demand'')
+            AND TO_DATE(T.TRANSACTIONTIMESTAMP) >= (
+                SELECT TO_DATE(DATEINUNIX)
+                FROM EDW_MARKETING_PRD.ANALYTICS.TIMESUMMARY
+                WHERE FISCALYEAR = (
+                    SELECT FISCALYEAR
+                    FROM CDP.PUBLIC.TIMESUMMARY
+                    WHERE TO_DATE(DATEINUNIX) > CURRENT_DATE - 7
+                        AND TO_DATE(DATEINUNIX) <= CURRENT_DATE
+                        AND FISCALDAYOFWEEK = 7
+                ) - 2
+                AND FISCALDAYOFMONTH = 1
+                AND FISCALMONTH = 1
+            )
+            -- AND TO_DATE(T.TRANSACTIONTIMESTAMP) <= (
+            --     SELECT MAX(TS.DATEINUNIX::DATE)
+            --     FROM CDP.PUBLIC.TIMESUMMARY TS
+            --     WHERE TS.DATEINUNIX::DATE <= CURRENT_DATE::DATE
+            --         AND TS.FISCALDAYOFWEEK = 7
+            -- )
+        
+        UNION
+
+        SELECT DISTINCT 
+            MASTERCUSTOMERID
+        FROM
+            DS_DEV.PUBLIC.TRANSACTIONSUMMARY_MW_20240308 T
+        LEFT JOIN 
+            CDP.PUBLIC.TIMESUMMARY TS 
+            ON TO_DATE(TS.DATEINUNIX) = TO_DATE(T.TRANSACTIONTIMESTAMP)
+        WHERE FISCALYEAR = 2023
+    )
+    SELECT 
+        MASTERCUSTOMERID,
+        RANK() OVER (ORDER BY MASTERCUSTOMERID DESC) AS "Customer Id"
+    FROM 
+        ALL_CUSTOMERS;
+
+    DROP TABLE IF EXISTS RPT."MADEWELL CUSTOMER";  -- Added IF EXISTS to avoid errors if the table does not exist.
+    ALTER TABLE 
+        Temp."MADEWELL CUSTOMER" 
+    RENAME TO RPT."MADEWELL CUSTOMER";
+
+    -- Return success message
+    RETURN ''Table RPT."MADEWELL CUSTOMER" created or replaced successfully.'';
+END;
+';
